@@ -1087,6 +1087,46 @@ export function heartbeatService(db: Db) {
     context.assignmentsJson = JSON.stringify(agentAssignments);
     context.agentRole = agent.role ?? "general";
 
+    // Lightweight pre-check: skip the heartbeat entirely if there is no work
+    // and no event-based wake trigger. This avoids spinning up an expensive
+    // LLM session just to discover there is nothing to do.
+    const hasAssignments = agentAssignments.length > 0;
+    const hasWakeTrigger =
+      !!readNonEmptyString(context.taskId as string | undefined) ||
+      !!readNonEmptyString(context.issueId as string | undefined) ||
+      !!readNonEmptyString(context.wakeCommentId as string | undefined) ||
+      !!readNonEmptyString(context.commentId as string | undefined) ||
+      !!readNonEmptyString(context.approvalId as string | undefined);
+    if (!hasAssignments && !hasWakeTrigger) {
+      logger.info(
+        {
+          companyId: agent.companyId,
+          agentId: agent.id,
+          runId: run.id,
+        },
+        "pre-check: no assignments and no wake trigger — skipping heartbeat",
+      );
+      await appendRunEvent(run, 1, {
+        eventType: "lifecycle",
+        stream: "system",
+        level: "info",
+        message: "skipped: no assignments and no wake trigger",
+      });
+      await setRunStatus(run.id, "skipped", {
+        finishedAt: new Date(),
+        error: null,
+        errorCode: null,
+      });
+      await setWakeupStatus(run.wakeupRequestId, "completed", {
+        finishedAt: new Date(),
+      });
+      const skippedRun = await getRun(run.id);
+      if (skippedRun) await releaseIssueExecutionAndPromote(skippedRun);
+      await finalizeAgentStatus(agent.id, "succeeded");
+      await startNextQueuedRunForAgent(agent.id);
+      return;
+    }
+
     const taskKey = deriveTaskKey(context, null);
     const sessionCodec = getAdapterSessionCodec(agent.adapterType);
     const issueId = readNonEmptyString(context.issueId);
