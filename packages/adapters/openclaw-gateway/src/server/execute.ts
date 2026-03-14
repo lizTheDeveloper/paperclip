@@ -327,6 +327,12 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
   if (wakePayload.issueIds.length > 0) {
     paperclipEnv.PAPERCLIP_LINKED_ISSUE_IDS = wakePayload.issueIds.join(",");
   }
+  if (typeof ctx.context.assignmentsJson === "string" && ctx.context.assignmentsJson.length > 0) {
+    paperclipEnv.PAPERCLIP_ASSIGNMENTS_JSON = ctx.context.assignmentsJson;
+  }
+  if (typeof ctx.context.agentRole === "string" && ctx.context.agentRole.length > 0) {
+    paperclipEnv.PAPERCLIP_AGENT_ROLE = ctx.context.agentRole;
+  }
 
   return paperclipEnv;
 }
@@ -344,6 +350,8 @@ function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string
     "PAPERCLIP_APPROVAL_ID",
     "PAPERCLIP_APPROVAL_STATUS",
     "PAPERCLIP_LINKED_ISSUE_IDS",
+    "PAPERCLIP_ASSIGNMENTS_JSON",
+    "PAPERCLIP_AGENT_ROLE",
   ];
 
   const envLines: string[] = [];

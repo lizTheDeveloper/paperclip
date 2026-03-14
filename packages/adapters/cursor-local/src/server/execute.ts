@@ -241,6 +241,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (workspaceHints.length > 0) {
     env.PAPERCLIP_WORKSPACES_JSON = JSON.stringify(workspaceHints);
   }
+  if (typeof context.assignmentsJson === "string" && context.assignmentsJson.length > 0) {
+    env.PAPERCLIP_ASSIGNMENTS_JSON = context.assignmentsJson;
+  }
+  if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
+    env.PAPERCLIP_AGENT_ROLE = context.agentRole;
+  }
   for (const [k, v] of Object.entries(envConfig)) {
     if (typeof v === "string") env[k] = v;
   }

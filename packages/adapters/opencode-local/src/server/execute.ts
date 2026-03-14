@@ -151,6 +151,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (workspaceRepoUrl) env.PAPERCLIP_WORKSPACE_REPO_URL = workspaceRepoUrl;
   if (workspaceRepoRef) env.PAPERCLIP_WORKSPACE_REPO_REF = workspaceRepoRef;
   if (workspaceHints.length > 0) env.PAPERCLIP_WORKSPACES_JSON = JSON.stringify(workspaceHints);
+  if (typeof context.assignmentsJson === "string" && context.assignmentsJson.length > 0) {
+    env.PAPERCLIP_ASSIGNMENTS_JSON = context.assignmentsJson;
+  }
+  if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
+    env.PAPERCLIP_AGENT_ROLE = context.agentRole;
+  }
 
   for (const [key, value] of Object.entries(envConfig)) {
     if (typeof value === "string") env[key] = value;

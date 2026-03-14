@@ -1065,6 +1065,28 @@ export function heartbeatService(db: Db) {
 
     const runtime = await ensureRuntimeState(agent);
     const context = parseObject(run.contextSnapshot);
+
+    // Inject compact assignment queue so agents skip the list-issues API call
+    const agentAssignments = await db
+      .select({
+        id: issues.id,
+        identifier: issues.identifier,
+        status: issues.status,
+        priority: issues.priority,
+        title: issues.title,
+        projectId: issues.projectId,
+      })
+      .from(issues)
+      .where(
+        and(
+          eq(issues.companyId, agent.companyId),
+          eq(issues.assigneeAgentId, agent.id),
+          inArray(issues.status, ["todo", "in_progress", "blocked"]),
+        ),
+      );
+    context.assignmentsJson = JSON.stringify(agentAssignments);
+    context.agentRole = agent.role ?? "general";
+
     const taskKey = deriveTaskKey(context, null);
     const sessionCodec = getAdapterSessionCodec(agent.adapterType);
     const issueId = readNonEmptyString(context.issueId);
