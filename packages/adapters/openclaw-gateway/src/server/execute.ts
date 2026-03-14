@@ -333,6 +333,9 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
   if (typeof ctx.context.agentRole === "string" && ctx.context.agentRole.length > 0) {
     paperclipEnv.PAPERCLIP_AGENT_ROLE = ctx.context.agentRole;
   }
+  if (typeof ctx.context.taskJson === "string" && ctx.context.taskJson.length > 0) {
+    paperclipEnv.PAPERCLIP_TASK_JSON = ctx.context.taskJson;
+  }
 
   return paperclipEnv;
 }
@@ -352,6 +355,7 @@ function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string
     "PAPERCLIP_LINKED_ISSUE_IDS",
     "PAPERCLIP_ASSIGNMENTS_JSON",
     "PAPERCLIP_AGENT_ROLE",
+    "PAPERCLIP_TASK_JSON",
   ];
 
   const envLines: string[] = [];

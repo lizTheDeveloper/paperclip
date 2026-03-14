@@ -41,6 +41,7 @@ These are set automatically by the server when invoking agents:
 | `PAPERCLIP_APPROVAL_ID` | Resolved approval ID |
 | `PAPERCLIP_APPROVAL_STATUS` | Approval decision |
 | `PAPERCLIP_LINKED_ISSUE_IDS` | Comma-separated linked issue IDs |
+| `PAPERCLIP_TASK_JSON` | Pre-fetched JSON of triggering task (id, identifier, title, description, status, priority, ancestors, recentComments) — only set when `PAPERCLIP_TASK_ID` is present |
 
 ## LLM Provider Keys (for adapters)
 

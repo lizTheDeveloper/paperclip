@@ -229,6 +229,9 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
     env.PAPERCLIP_AGENT_ROLE = context.agentRole;
   }
+  if (typeof context.taskJson === "string" && context.taskJson.length > 0) {
+    env.PAPERCLIP_TASK_JSON = context.taskJson;
+  }
 
   for (const [key, value] of Object.entries(envConfig)) {
     if (typeof value === "string") env[key] = value;
@@ -365,6 +368,45 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       `[paperclip] Claude session "${runtimeSessionId}" was saved for cwd "${runtimeSessionCwd}" and will not be resumed in "${cwd}".\n`,
     );
   }
+  // Derive computed template variables from context snapshot
+  const assignmentsData = (() => {
+    try {
+      const parsed =
+        typeof context.assignmentsJson === "string" ? JSON.parse(context.assignmentsJson) : [];
+      if (!Array.isArray(parsed)) return { count: 0, list: "" };
+      const list = parsed
+        .map(
+          (a: { identifier?: string; title?: string; status?: string }) =>
+            `- ${a.identifier ?? "?"}: ${a.title ?? "?"} [${a.status ?? "?"}]`,
+        )
+        .join("\n");
+      return { count: parsed.length, list };
+    } catch {
+      return { count: 0, list: "" };
+    }
+  })();
+
+  const taskData = (() => {
+    try {
+      const raw = context.taskJson;
+      const parsed =
+        typeof raw === "string"
+          ? JSON.parse(raw)
+          : typeof raw === "object" && raw !== null
+            ? raw
+            : null;
+      if (!parsed || typeof parsed !== "object") return { title: "", description: "" };
+      const title = typeof parsed.title === "string" ? parsed.title : "";
+      const desc = typeof parsed.description === "string" ? parsed.description : "";
+      return {
+        title,
+        description: desc.length > 2000 ? desc.slice(0, 2000) + "…" : desc,
+      };
+    } catch {
+      return { title: "", description: "" };
+    }
+  })();
+
   const prompt = renderTemplate(promptTemplate, {
     agentId: agent.id,
     companyId: agent.companyId,
@@ -372,7 +414,22 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     company: { id: agent.companyId },
     agent,
     run: { id: runId, source: "on_demand" },
-    context,
+    context: {
+      ...context,
+      wakeReason: typeof context.wakeReason === "string" ? context.wakeReason : "",
+      taskId:
+        (typeof context.taskId === "string" && context.taskId.trim()) ||
+        (typeof context.issueId === "string" && context.issueId.trim()) ||
+        "",
+      taskTitle: taskData.title,
+      taskDescription: taskData.description,
+      assignmentsCount: assignmentsData.count,
+      assignments: assignmentsData.list,
+      commentId:
+        (typeof context.wakeCommentId === "string" && context.wakeCommentId.trim()) ||
+        (typeof context.commentId === "string" && context.commentId.trim()) ||
+        "",
+    },
   });
 
   const buildClaudeArgs = (resumeSessionId: string | null) => {

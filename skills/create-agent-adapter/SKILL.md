@@ -289,6 +289,7 @@ This is the most important file. It receives an `AdapterExecutionContext` and mu
 | `PAPERCLIP_APPROVAL_ID` | `context.approvalId` |
 | `PAPERCLIP_APPROVAL_STATUS` | `context.approvalStatus` |
 | `PAPERCLIP_LINKED_ISSUE_IDS` | `context.issueIds` (comma-separated) |
+| `PAPERCLIP_TASK_JSON` | `context.taskJson` (pre-fetched task JSON string; only set when `PAPERCLIP_TASK_ID` is present) |
 | `PAPERCLIP_API_KEY` | `authToken` (if no explicit key in config) |
 
 #### `server/parse.ts` — Output Parser

@@ -185,6 +185,9 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
     env.PAPERCLIP_AGENT_ROLE = context.agentRole;
   }
+  if (typeof context.taskJson === "string" && context.taskJson.length > 0) {
+    env.PAPERCLIP_TASK_JSON = context.taskJson;
+  }
 
   for (const [key, value] of Object.entries(envConfig)) {
     if (typeof value === "string") env[key] = value;

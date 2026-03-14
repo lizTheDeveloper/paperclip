@@ -11,6 +11,7 @@ import {
   heartbeatRuns,
   costEvents,
   issues,
+  issueComments,
   projectWorkspaces,
 } from "@paperclipai/db";
 import { conflict, notFound } from "../errors.js";
@@ -1103,6 +1104,83 @@ export function heartbeatService(db: Db) {
       );
     context.assignmentsJson = JSON.stringify(agentAssignments);
     context.agentRole = agent.role ?? "general";
+
+    // Pre-fetch triggering task details and inject as PAPERCLIP_TASK_JSON.
+    // Eliminates 2 API calls per task-triggered heartbeat across all agents.
+    const wakeTaskIdForFetch =
+      readNonEmptyString(context.taskId as string | undefined) ??
+      readNonEmptyString(context.issueId as string | undefined);
+    if (wakeTaskIdForFetch) {
+      try {
+        const taskRow = await db
+          .select({
+            id: issues.id,
+            identifier: issues.identifier,
+            title: issues.title,
+            description: issues.description,
+            status: issues.status,
+            priority: issues.priority,
+            parentId: issues.parentId,
+          })
+          .from(issues)
+          .where(and(eq(issues.id, wakeTaskIdForFetch), eq(issues.companyId, agent.companyId)))
+          .then((rows) => rows[0] ?? null);
+
+        if (taskRow) {
+          // Walk parent chain for ancestors (max 5 levels, guarded against cycles)
+          const ancestors: Array<{ id: string; identifier: string | null; title: string; status: string; priority: string }> = [];
+          const visited = new Set<string>([taskRow.id]);
+          let currentParentId = taskRow.parentId ?? null;
+          while (currentParentId && !visited.has(currentParentId) && ancestors.length < 5) {
+            visited.add(currentParentId);
+            const parent = await db
+              .select({ id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, priority: issues.priority, parentId: issues.parentId })
+              .from(issues)
+              .where(eq(issues.id, currentParentId))
+              .then((rows) => rows[0] ?? null);
+            if (!parent) break;
+            ancestors.push({ id: parent.id, identifier: parent.identifier ?? null, title: parent.title, status: parent.status, priority: parent.priority });
+            currentParentId = parent.parentId ?? null;
+          }
+
+          // Fetch last 10 comments
+          const recentCommentRows = await db
+            .select({ id: issueComments.id, body: issueComments.body, authorAgentId: issueComments.authorAgentId, authorUserId: issueComments.authorUserId, createdAt: issueComments.createdAt })
+            .from(issueComments)
+            .where(and(eq(issueComments.issueId, wakeTaskIdForFetch), eq(issueComments.companyId, agent.companyId)))
+            .orderBy(desc(issueComments.createdAt))
+            .limit(10);
+
+          const TASK_DESC_MAX = 4000;
+          const COMMENT_BODY_MAX = 1000;
+          const SECRET_PATTERN = /(?:api[_-]?key|password|secret|token|auth)[^\s]*\s*[:=]\s*\S+/gi;
+          const sanitize = (s: string) => s.replace(SECRET_PATTERN, "[redacted]");
+
+          const taskJson = {
+            id: taskRow.id,
+            identifier: taskRow.identifier ?? null,
+            title: taskRow.title,
+            description: taskRow.description
+              ? sanitize(taskRow.description.slice(0, TASK_DESC_MAX))
+              : null,
+            status: taskRow.status,
+            priority: taskRow.priority,
+            ancestors,
+            recentComments: recentCommentRows.map((c) => ({
+              id: c.id,
+              body: sanitize(c.body.slice(0, COMMENT_BODY_MAX)),
+              authorAgentId: c.authorAgentId ?? null,
+              authorUserId: c.authorUserId ?? null,
+              createdAt: c.createdAt,
+            })),
+          };
+          context.taskJson = JSON.stringify(taskJson);
+        }
+      } catch (err) {
+        logger.warn({ err, taskId: wakeTaskIdForFetch }, "failed to pre-fetch task JSON; continuing without it");
+        context.taskJson = null;
+      }
+    }
 
     // Lightweight pre-check: skip the heartbeat entirely if there is no work
     // and no event-based wake trigger. This avoids spinning up an expensive
