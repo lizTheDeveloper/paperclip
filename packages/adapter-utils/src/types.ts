@@ -8,6 +8,7 @@ export interface AdapterAgent {
   name: string;
   adapterType: string | null;
   adapterConfig: unknown;
+  role?: string | null;
 }
 
 export interface AdapterRuntime {

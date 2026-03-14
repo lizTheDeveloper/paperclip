@@ -75,6 +75,9 @@ async function resolvePaperclipSkillsDir(): Promise<string | null> {
   return null;
 }
 
+// Role-specific paperclip skill names. The monolithic "paperclip" skill is the legacy fallback.
+const PAPERCLIP_ROLE_SKILLS = new Set(["paperclip-ic", "paperclip-pm", "paperclip-ceo"]);
+
 async function ensureCodexSkillsInjected(onLog: AdapterExecutionContext["onLog"]) {
   const skillsDir = await resolvePaperclipSkillsDir();
   if (!skillsDir) return;
@@ -82,10 +85,18 @@ async function ensureCodexSkillsInjected(onLog: AdapterExecutionContext["onLog"]
   const skillsHome = path.join(codexHomeDir(), "skills");
   await fs.mkdir(skillsHome, { recursive: true });
   const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+
+  // Determine if role-specific skills exist in the source skills dir.
+  const hasRoleSkills = entries.some((e) => e.isDirectory() && PAPERCLIP_ROLE_SKILLS.has(e.name));
+
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
-    const source = path.join(skillsDir, entry.name);
-    const target = path.join(skillsHome, entry.name);
+    const name = entry.name;
+    // When role-specific skills are present, skip the monolithic "paperclip" skill
+    // to avoid duplicate/conflicting protocols in the agent's context.
+    if (hasRoleSkills && name === "paperclip") continue;
+    const source = path.join(skillsDir, name);
+    const target = path.join(skillsHome, name);
     const existing = await fs.lstat(target).catch(() => null);
     if (existing) continue;
 
@@ -93,12 +104,12 @@ async function ensureCodexSkillsInjected(onLog: AdapterExecutionContext["onLog"]
       await fs.symlink(source, target);
       await onLog(
         "stderr",
-        `[paperclip] Injected Codex skill "${entry.name}" into ${skillsHome}\n`,
+        `[paperclip] Injected Codex skill "${name}" into ${skillsHome}\n`,
       );
     } catch (err) {
       await onLog(
         "stderr",
-        `[paperclip] Failed to inject Codex skill "${entry.name}" into ${skillsHome}: ${err instanceof Error ? err.message : String(err)}\n`,
+        `[paperclip] Failed to inject Codex skill "${name}" into ${skillsHome}: ${err instanceof Error ? err.message : String(err)}\n`,
       );
     }
   }
@@ -203,6 +214,12 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   }
   if (workspaceHints.length > 0) {
     env.PAPERCLIP_WORKSPACES_JSON = JSON.stringify(workspaceHints);
+  }
+  if (typeof context.assignmentsJson === "string" && context.assignmentsJson.length > 0) {
+    env.PAPERCLIP_ASSIGNMENTS_JSON = context.assignmentsJson;
+  }
+  if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
+    env.PAPERCLIP_AGENT_ROLE = context.agentRole;
   }
   for (const [k, v] of Object.entries(envConfig)) {
     if (typeof v === "string") env[k] = v;

@@ -42,24 +42,52 @@ async function resolvePaperclipSkillsDir(): Promise<string | null> {
 }
 
 /**
+ * Map an agent role to its role-specific paperclip skill name.
+ * Returns null if the role doesn't have a dedicated skill (fallback to monolithic "paperclip").
+ */
+function paperclipSkillForRole(role: string | null | undefined): string | null {
+  if (!role) return null;
+  switch (role) {
+    case "ceo": return "paperclip-ceo";
+    case "pm":
+    case "manager": return "paperclip-pm";
+    default: return "paperclip-ic";
+  }
+}
+
+const PAPERCLIP_ROLE_SKILLS = new Set(["paperclip-ic", "paperclip-pm", "paperclip-ceo"]);
+
+/**
  * Create a tmpdir with `.claude/skills/` containing symlinks to skills from
  * the repo's `skills/` directory, so `--add-dir` makes Claude Code discover
  * them as proper registered skills.
+ *
+ * When `agentRole` is provided, only the matching role-specific paperclip skill
+ * is included (omitting the monolithic `paperclip` skill and other role variants).
+ * Agents with an unknown role fall back to the monolithic `paperclip` skill.
  */
-async function buildSkillsDir(): Promise<string> {
+async function buildSkillsDir(agentRole?: string | null): Promise<string> {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skills-"));
   const target = path.join(tmp, ".claude", "skills");
   await fs.mkdir(target, { recursive: true });
   const skillsDir = await resolvePaperclipSkillsDir();
   if (!skillsDir) return tmp;
   const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+  const roleSkill = paperclipSkillForRole(agentRole);
   for (const entry of entries) {
-    if (entry.isDirectory()) {
-      await fs.symlink(
-        path.join(skillsDir, entry.name),
-        path.join(target, entry.name),
-      );
+    if (!entry.isDirectory()) continue;
+    const name = entry.name;
+    // Filter paperclip skills: include only the role-appropriate one.
+    if (roleSkill !== null) {
+      if (name === "paperclip") continue; // skip monolithic skill when role-specific exists
+      if (PAPERCLIP_ROLE_SKILLS.has(name) && name !== roleSkill) continue; // skip other role variants
+    } else {
+      if (PAPERCLIP_ROLE_SKILLS.has(name)) continue; // skip role skills when using monolithic fallback
     }
+    await fs.symlink(
+      path.join(skillsDir, entry.name),
+      path.join(target, entry.name),
+    );
   }
   return tmp;
 }
@@ -195,6 +223,12 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   if (workspaceHints.length > 0) {
     env.PAPERCLIP_WORKSPACES_JSON = JSON.stringify(workspaceHints);
   }
+  if (typeof context.assignmentsJson === "string" && context.assignmentsJson.length > 0) {
+    env.PAPERCLIP_ASSIGNMENTS_JSON = context.assignmentsJson;
+  }
+  if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
+    env.PAPERCLIP_AGENT_ROLE = context.agentRole;
+  }
 
   for (const [key, value] of Object.entries(envConfig)) {
     if (typeof value === "string") env[key] = value;
@@ -304,7 +338,7 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
     extraArgs,
   } = runtimeConfig;
   const billingType = resolveClaudeBillingType(env);
-  const skillsDir = await buildSkillsDir();
+  const skillsDir = await buildSkillsDir(agent.role);
 
   // When instructionsFilePath is configured, create a combined temp file that
   // includes both the file content and the path directive, so we only need
