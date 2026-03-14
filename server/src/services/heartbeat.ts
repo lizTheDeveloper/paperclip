@@ -938,6 +938,23 @@ export function heartbeatService(db: Db) {
       await startNextQueuedRunForAgent(run.agentId);
       runningProcesses.delete(run.id);
       reaped.push(run.id);
+
+      // Immediately re-enqueue so the agent retries without waiting for the next timer tick.
+      // Use "timer" source so the retry works even when wakeOnDemand is disabled.
+      const retryContext: Record<string, unknown> = {
+        ...(run.contextSnapshot ?? {}),
+        wakeReason: "process_lost_retry",
+      };
+      await enqueueWakeup(run.agentId, {
+        source: "timer",
+        triggerDetail: "system",
+        reason: "process_lost_retry",
+        contextSnapshot: retryContext,
+        requestedByActorType: "system",
+        requestedByActorId: "reaper",
+      }).catch((err) => {
+        logger.warn({ err, agentId: run.agentId }, "failed to enqueue immediate retry after process loss");
+      });
     }
 
     if (reaped.length > 0) {
