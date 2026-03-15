@@ -485,6 +485,8 @@ export function Office() {
             wander.dy = Math.sin(angle) * dist * TS;
             wander.steps = 60 + Math.floor(Math.random() * 80);
             wander.stepsDone = 0;
+            wander.px = 0;
+            wander.py = 0;
           }
           wander.stepsDone++;
           wander.px += (wander.dx - wander.px) * 0.02;

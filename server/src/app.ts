@@ -134,9 +134,10 @@ export async function createApp(
     ];
     const uiDist = candidates.find((p) => fs.existsSync(path.join(p, "index.html")));
     if (uiDist) {
-      const indexHtml = fs.readFileSync(path.join(uiDist, "index.html"), "utf-8");
+      const indexHtmlPath = path.join(uiDist, "index.html");
       app.use(express.static(uiDist));
       app.get(/.*/, (_req, res) => {
+        const indexHtml = fs.readFileSync(indexHtmlPath, "utf-8");
         res.status(200).set("Content-Type", "text/html").end(indexHtml);
       });
     } else {
