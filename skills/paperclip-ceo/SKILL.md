@@ -145,4 +145,4 @@ Rules: allowed for the agent itself or an ancestor manager. Relative paths resol
 
 ## Full Reference
 
-For detailed API tables, JSON response schemas, worked examples, governance/approvals, and error codes: `skills/paperclip-ceo/references/api-reference.md` (or `skills/paperclip/references/api-reference.md` if using the shared reference).
+For detailed API tables, JSON response schemas, worked examples, governance/approvals, and error codes: `skills/paperclip/references/api-reference.md`
