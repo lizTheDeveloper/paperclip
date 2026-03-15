@@ -651,8 +651,11 @@ export function Office() {
     setSelectedAgent(null);
   }, []);
 
-  const runningCount = agentsRef.current.filter(a => a.officeStatus === "running").length;
-  const totalCount = agentsRef.current.length;
+  // Compute counts from query data (not ref) so they update on re-render
+  const runningCount = agentList
+    ? mapAgents(agentList, inProgressIssues ?? []).filter(a => a.officeStatus === "running").length
+    : 0;
+  const totalCount = agentList?.filter(a => a.status !== "terminated" && a.status !== "paused").length ?? 0;
 
   return (
     <div className="flex flex-col h-full" style={{ background: "#0d0d1a", color: "#e8e8f0", fontFamily: "'JetBrains Mono', monospace" }}>
