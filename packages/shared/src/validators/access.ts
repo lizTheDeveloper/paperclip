@@ -63,6 +63,23 @@ export const updateMemberPermissionsSchema = z.object({
 
 export type UpdateMemberPermissions = z.infer<typeof updateMemberPermissionsSchema>;
 
+export const grantPermissionSchema = z.object({
+  principalType: z.enum(["user", "agent"]),
+  principalId: z.string().uuid(),
+  permissionKey: z.enum(PERMISSION_KEYS),
+  scope: z.record(z.string(), z.unknown()).optional().nullable(),
+});
+
+export type GrantPermission = z.infer<typeof grantPermissionSchema>;
+
+export const revokePermissionSchema = z.object({
+  principalType: z.enum(["user", "agent"]),
+  principalId: z.string().uuid(),
+  permissionKey: z.enum(PERMISSION_KEYS),
+});
+
+export type RevokePermission = z.infer<typeof revokePermissionSchema>;
+
 export const updateUserCompanyAccessSchema = z.object({
   companyIds: z.array(z.string().uuid()).default([]),
 });

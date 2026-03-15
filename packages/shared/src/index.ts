@@ -203,6 +203,8 @@ export {
   listJoinRequestsQuerySchema,
   claimJoinRequestApiKeySchema,
   updateMemberPermissionsSchema,
+  grantPermissionSchema,
+  revokePermissionSchema,
   updateUserCompanyAccessSchema,
   type CreateCostEvent,
   type UpdateBudget,

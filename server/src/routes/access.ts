@@ -24,6 +24,8 @@ import {
   createOpenClawInvitePromptSchema,
   listJoinRequestsQuerySchema,
   updateMemberPermissionsSchema,
+  grantPermissionSchema,
+  revokePermissionSchema,
   updateUserCompanyAccessSchema,
   PERMISSION_KEYS
 } from "@paperclipai/shared";
@@ -2557,6 +2559,106 @@ export function accessRoutes(
       res.json(updated);
     }
   );
+
+  async function assertCeoAgentOrBoardAdmin(req: Request, companyId: string) {
+    assertCompanyAccess(req, companyId);
+    if (req.actor.type === "agent") {
+      if (!req.actor.agentId) throw forbidden();
+      const actorAgent = await agents.getById(req.actor.agentId);
+      if (!actorAgent || actorAgent.companyId !== companyId) {
+        throw forbidden("Agent key cannot access another company");
+      }
+      if (actorAgent.role !== "ceo") {
+        throw forbidden("Only CEO agents can manage permission grants");
+      }
+      return;
+    }
+    if (req.actor.type !== "board") throw unauthorized();
+    if (isLocalImplicit(req)) return;
+    const isAdmin = await access.isInstanceAdmin(req.actor.userId);
+    if (!isAdmin) throw forbidden("Board admin required");
+  }
+
+  router.post(
+    "/companies/:companyId/permissions/grants",
+    validate(grantPermissionSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      await assertCeoAgentOrBoardAdmin(req, companyId);
+      const grant = await access.grantPermission(
+        companyId,
+        req.body.principalType,
+        req.body.principalId,
+        req.body.permissionKey,
+        req.body.scope ?? null,
+        req.actor.type === "board" ? (req.actor.userId ?? null) : null,
+      );
+      if (!grant) throw badRequest("Failed to create grant");
+      await logActivity(db, {
+        companyId,
+        actorType: req.actor.type === "agent" ? "agent" : "user",
+        actorId:
+          req.actor.type === "agent"
+            ? req.actor.agentId ?? "unknown-agent"
+            : req.actor.userId ?? "board",
+        agentId: req.actor.type === "agent" ? (req.actor.agentId ?? null) : null,
+        runId: req.actor.runId ?? null,
+        action: "permission.granted",
+        entityType: "principal_permission_grant",
+        entityId: grant.id,
+        details: {
+          principalType: req.body.principalType,
+          principalId: req.body.principalId,
+          permissionKey: req.body.permissionKey,
+        },
+      });
+      res.status(201).json(grant);
+    }
+  );
+
+  router.delete(
+    "/companies/:companyId/permissions/grants",
+    validate(revokePermissionSchema),
+    async (req, res) => {
+      const companyId = req.params.companyId as string;
+      await assertCeoAgentOrBoardAdmin(req, companyId);
+      const revoked = await access.revokePermission(
+        companyId,
+        req.body.principalType,
+        req.body.principalId,
+        req.body.permissionKey,
+      );
+      if (!revoked) throw notFound("Grant not found");
+      await logActivity(db, {
+        companyId,
+        actorType: req.actor.type === "agent" ? "agent" : "user",
+        actorId:
+          req.actor.type === "agent"
+            ? req.actor.agentId ?? "unknown-agent"
+            : req.actor.userId ?? "board",
+        agentId: req.actor.type === "agent" ? (req.actor.agentId ?? null) : null,
+        runId: req.actor.runId ?? null,
+        action: "permission.revoked",
+        entityType: "principal_permission_grant",
+        entityId: revoked.id,
+        details: {
+          principalType: req.body.principalType,
+          principalId: req.body.principalId,
+          permissionKey: req.body.permissionKey,
+        },
+      });
+      res.json(revoked);
+    }
+  );
+
+  router.get("/companies/:companyId/permissions/grants", async (req, res) => {
+    const companyId = req.params.companyId as string;
+    await assertCeoAgentOrBoardAdmin(req, companyId);
+    const principalType = typeof req.query.principalType === "string" ? req.query.principalType as "user" | "agent" : undefined;
+    const principalId = typeof req.query.principalId === "string" ? req.query.principalId : undefined;
+    const grants = await access.listPermissionGrants(companyId, principalType, principalId);
+    res.json(grants);
+  });
 
   router.post(
     "/admin/users/:userId/promote-instance-admin",

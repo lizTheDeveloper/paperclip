@@ -124,6 +124,8 @@ export {
   listJoinRequestsQuerySchema,
   claimJoinRequestApiKeySchema,
   updateMemberPermissionsSchema,
+  grantPermissionSchema,
+  revokePermissionSchema,
   updateUserCompanyAccessSchema,
   type CreateCompanyInvite,
   type CreateOpenClawInvitePrompt,
@@ -131,5 +133,7 @@ export {
   type ListJoinRequestsQuery,
   type ClaimJoinRequestApiKey,
   type UpdateMemberPermissions,
+  type GrantPermission,
+  type RevokePermission,
   type UpdateUserCompanyAccess,
 } from "./access.js";

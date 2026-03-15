@@ -218,6 +218,74 @@ export function accessService(db: Db) {
       .then((rows) => rows[0]);
   }
 
+  async function grantPermission(
+    companyId: string,
+    principalType: PrincipalType,
+    principalId: string,
+    permissionKey: PermissionKey,
+    scope: Record<string, unknown> | null,
+    grantedByUserId: string | null,
+  ) {
+    const now = new Date();
+    const rows = await db
+      .insert(principalPermissionGrants)
+      .values({
+        companyId,
+        principalType,
+        principalId,
+        permissionKey,
+        scope,
+        grantedByUserId,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [
+          principalPermissionGrants.companyId,
+          principalPermissionGrants.principalType,
+          principalPermissionGrants.principalId,
+          principalPermissionGrants.permissionKey,
+        ],
+        set: { scope, grantedByUserId, updatedAt: now },
+      })
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  async function revokePermission(
+    companyId: string,
+    principalType: PrincipalType,
+    principalId: string,
+    permissionKey: PermissionKey,
+  ) {
+    const rows = await db
+      .delete(principalPermissionGrants)
+      .where(
+        and(
+          eq(principalPermissionGrants.companyId, companyId),
+          eq(principalPermissionGrants.principalType, principalType),
+          eq(principalPermissionGrants.principalId, principalId),
+          eq(principalPermissionGrants.permissionKey, permissionKey),
+        ),
+      )
+      .returning();
+    return rows[0] ?? null;
+  }
+
+  async function listPermissionGrants(
+    companyId: string,
+    principalType?: PrincipalType,
+    principalId?: string,
+  ) {
+    const conditions = [eq(principalPermissionGrants.companyId, companyId)];
+    if (principalType) conditions.push(eq(principalPermissionGrants.principalType, principalType));
+    if (principalId) conditions.push(eq(principalPermissionGrants.principalId, principalId));
+    return db
+      .select()
+      .from(principalPermissionGrants)
+      .where(and(...conditions));
+  }
+
   async function setPrincipalGrants(
     companyId: string,
     principalType: PrincipalType,
@@ -264,5 +332,8 @@ export function accessService(db: Db) {
     listUserCompanyAccess,
     setUserCompanyAccess,
     setPrincipalGrants,
+    grantPermission,
+    revokePermission,
+    listPermissionGrants,
   };
 }
