@@ -224,6 +224,18 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (typeof context.taskJson === "string" && context.taskJson.length > 0) {
     env.PAPERCLIP_TASK_JSON = context.taskJson;
   }
+  if (typeof context.onIdleBehavior === "string" && context.onIdleBehavior.length > 0) {
+    env.PAPERCLIP_ON_IDLE_BEHAVIOR = context.onIdleBehavior;
+  }
+  if (typeof context.idleCustomPrompt === "string" && context.idleCustomPrompt.length > 0) {
+    env.PAPERCLIP_IDLE_CUSTOM_PROMPT = context.idleCustomPrompt;
+  }
+  if (typeof context.pmAgentId === "string" && context.pmAgentId.length > 0) {
+    env.PAPERCLIP_PM_AGENT_ID = context.pmAgentId;
+  }
+  if (typeof context.pmAgentName === "string" && context.pmAgentName.length > 0) {
+    env.PAPERCLIP_PM_AGENT_NAME = context.pmAgentName;
+  }
   for (const [k, v] of Object.entries(envConfig)) {
     if (typeof v === "string") env[k] = v;
   }

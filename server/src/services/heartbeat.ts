@@ -802,12 +802,25 @@ export function heartbeatService(db: Db) {
     const roleProfile: "ic" | "pm" | "ceo" =
       rawRoleProfile === "pm" ? "pm" : rawRoleProfile === "ceo" ? "ceo" : "ic";
 
+    const rawOnIdleBehavior = typeof heartbeat.onIdleBehavior === "string" ? heartbeat.onIdleBehavior.trim().toLowerCase() : null;
+    const onIdleBehavior: "exit" | "ask_pm" | "continuous_improvement" | "custom_prompt" =
+      rawOnIdleBehavior === "ask_pm" ? "ask_pm"
+      : rawOnIdleBehavior === "continuous_improvement" ? "continuous_improvement"
+      : rawOnIdleBehavior === "custom_prompt" ? "custom_prompt"
+      : "exit";
+
+    const idleCustomPrompt = typeof heartbeat.idleCustomPrompt === "string" && heartbeat.idleCustomPrompt.trim().length > 0
+      ? heartbeat.idleCustomPrompt.trim()
+      : null;
+
     return {
       enabled: asBoolean(heartbeat.enabled, true),
       intervalSec: Math.max(0, asNumber(heartbeat.intervalSec, 0)),
       wakeOnDemand: asBoolean(heartbeat.wakeOnDemand ?? heartbeat.wakeOnAssignment ?? heartbeat.wakeOnOnDemand ?? heartbeat.wakeOnAutomation, true),
       maxConcurrentRuns: normalizeMaxConcurrentRuns(heartbeat.maxConcurrentRuns),
       roleProfile,
+      onIdleBehavior,
+      idleCustomPrompt,
     };
   }
 
@@ -1111,6 +1124,22 @@ export function heartbeatService(db: Db) {
     context.assignmentsJson = JSON.stringify(agentAssignments);
     context.agentRole = agent.role ?? "general";
     context.heartbeatRoleProfile = policy.roleProfile;
+    context.onIdleBehavior = policy.onIdleBehavior;
+    if (policy.idleCustomPrompt) {
+      context.idleCustomPrompt = policy.idleCustomPrompt;
+    }
+    // For ask_pm mode: resolve the reporting manager so the agent can delegate upward
+    if (policy.onIdleBehavior === "ask_pm" && agent.reportsTo) {
+      const manager = await db
+        .select({ id: agents.id, name: agents.name })
+        .from(agents)
+        .where(and(eq(agents.id, agent.reportsTo), eq(agents.companyId, agent.companyId)))
+        .then((rows) => rows[0] ?? null);
+      if (manager) {
+        context.pmAgentId = manager.id;
+        context.pmAgentName = manager.name ?? null;
+      }
+    }
 
     // Pre-fetch triggering task details and inject as PAPERCLIP_TASK_JSON.
     // Eliminates 2 API calls per task-triggered heartbeat across all agents.
@@ -1244,6 +1273,8 @@ export function heartbeatService(db: Db) {
     // LLM session just to discover there is nothing to do.
     // PM and CEO profiles are not skipped on empty inbox — they may have team
     // coordination or dashboard review work to do even without direct assignments.
+    // IC agents with a non-exit onIdleBehavior are also allowed through so they
+    // can act on their configured idle mode (ask_pm, continuous_improvement, custom_prompt).
     const hasAssignments = agentAssignments.length > 0;
     const hasWakeTrigger =
       !!readNonEmptyString(context.taskId as string | undefined) ||
@@ -1251,7 +1282,8 @@ export function heartbeatService(db: Db) {
       !!readNonEmptyString(context.wakeCommentId as string | undefined) ||
       !!readNonEmptyString(context.commentId as string | undefined) ||
       !!readNonEmptyString(context.approvalId as string | undefined);
-    const skipOnEmptyInbox = policy.roleProfile === "ic";
+    const hasIdleAction = policy.roleProfile === "ic" && policy.onIdleBehavior !== "exit";
+    const skipOnEmptyInbox = policy.roleProfile === "ic" && !hasIdleAction;
     if (skipOnEmptyInbox && !hasAssignments && !hasWakeTrigger) {
       logger.info(
         {

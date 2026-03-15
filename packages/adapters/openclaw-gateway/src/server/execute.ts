@@ -336,6 +336,18 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
   if (typeof ctx.context.taskJson === "string" && ctx.context.taskJson.length > 0) {
     paperclipEnv.PAPERCLIP_TASK_JSON = ctx.context.taskJson;
   }
+  if (typeof ctx.context.onIdleBehavior === "string" && ctx.context.onIdleBehavior.length > 0) {
+    paperclipEnv.PAPERCLIP_ON_IDLE_BEHAVIOR = ctx.context.onIdleBehavior;
+  }
+  if (typeof ctx.context.idleCustomPrompt === "string" && ctx.context.idleCustomPrompt.length > 0) {
+    paperclipEnv.PAPERCLIP_IDLE_CUSTOM_PROMPT = ctx.context.idleCustomPrompt;
+  }
+  if (typeof ctx.context.pmAgentId === "string" && ctx.context.pmAgentId.length > 0) {
+    paperclipEnv.PAPERCLIP_PM_AGENT_ID = ctx.context.pmAgentId;
+  }
+  if (typeof ctx.context.pmAgentName === "string" && ctx.context.pmAgentName.length > 0) {
+    paperclipEnv.PAPERCLIP_PM_AGENT_NAME = ctx.context.pmAgentName;
+  }
 
   return paperclipEnv;
 }
@@ -356,6 +368,10 @@ function buildWakeText(payload: WakePayload, paperclipEnv: Record<string, string
     "PAPERCLIP_ASSIGNMENTS_JSON",
     "PAPERCLIP_AGENT_ROLE",
     "PAPERCLIP_TASK_JSON",
+    "PAPERCLIP_ON_IDLE_BEHAVIOR",
+    "PAPERCLIP_IDLE_CUSTOM_PROMPT",
+    "PAPERCLIP_PM_AGENT_ID",
+    "PAPERCLIP_PM_AGENT_NAME",
   ];
 
   const envLines: string[] = [];
