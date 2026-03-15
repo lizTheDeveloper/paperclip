@@ -25,6 +25,7 @@ import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
 import { heartbeatService } from "./services/index.js";
+import { recoverProcessLostTranscripts } from "./services/transcript-recovery.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
@@ -488,9 +489,19 @@ if (config.heartbeatSchedulerEnabled) {
   const heartbeat = heartbeatService(db as any);
 
   // Reap orphaned runs at startup (no threshold -- runningProcesses is empty)
-  void heartbeat.reapOrphanedRuns().catch((err) => {
-    logger.error({ err }, "startup reap of orphaned heartbeat runs failed");
-  });
+  // Then recover transcripts from Claude Code's local JSONL files for process-lost runs.
+  void heartbeat
+    .reapOrphanedRuns()
+    .then(() =>
+      recoverProcessLostTranscripts(db as any).then((result) => {
+        if (result.runs > 0) {
+          logger.info(result, "recovered process-lost transcripts from Claude JSONL files");
+        }
+      }),
+    )
+    .catch((err) => {
+      logger.error({ err }, "startup reap of orphaned heartbeat runs failed");
+    });
 
   setInterval(() => {
     void heartbeat
