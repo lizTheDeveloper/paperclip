@@ -1,9 +1,12 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
 import {
+  and,
   companyMemberships,
+  eq,
+  inArray,
   instanceUserRoles,
   principalPermissionGrants,
+  sql,
 } from "@paperclipai/db";
 import type { PermissionKey, PrincipalType } from "@paperclipai/shared";
 

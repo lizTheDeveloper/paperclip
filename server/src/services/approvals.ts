@@ -1,6 +1,5 @@
-import { and, asc, eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { approvalComments, approvals } from "@paperclipai/db";
+import { and, approvalComments, approvals, asc, eq } from "@paperclipai/db";
 import { notFound, unprocessable } from "../errors.js";
 import { agentService } from "./agents.js";
 import { notifyHireApproved } from "./hire-hook.js";

@@ -2,8 +2,7 @@ import { Router, type Request } from "express";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Db } from "@paperclipai/db";
-import { agents as agentsTable, companies, heartbeatRuns } from "@paperclipai/db";
-import { and, desc, eq, inArray, not, sql } from "drizzle-orm";
+import { agents as agentsTable, and, companies, desc, eq, heartbeatRuns, inArray, not, sql } from "@paperclipai/db";
 import {
   createAgentKeySchema,
   createAgentHireSchema,

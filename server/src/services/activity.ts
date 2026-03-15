@@ -1,6 +1,5 @@
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { activityLog, heartbeatRuns, issues } from "@paperclipai/db";
+import { activityLog, and, desc, eq, heartbeatRuns, isNull, issues, or, sql } from "@paperclipai/db";
 
 export interface ActivityFilters {
   companyId: string;

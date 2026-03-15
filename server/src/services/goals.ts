@@ -1,6 +1,5 @@
-import { eq } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
-import { goals } from "@paperclipai/db";
+import { eq, goals } from "@paperclipai/db";
 
 export function goalService(db: Db) {
   return {

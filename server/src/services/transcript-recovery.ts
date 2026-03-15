@@ -13,8 +13,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { sql } from "drizzle-orm";
 import type { Db } from "@paperclipai/db";
+import { sql } from "@paperclipai/db";
 import { logger } from "../middleware/logger.js";
 import { resolvePaperclipInstanceRoot } from "../home-paths.js";
 
