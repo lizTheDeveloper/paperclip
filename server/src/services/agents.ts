@@ -10,6 +10,7 @@ import {
   agentWakeupRequests,
   heartbeatRunEvents,
   heartbeatRuns,
+  issues,
 } from "@paperclipai/db";
 import { isUuidLike, normalizeAgentUrlKey } from "@paperclipai/shared";
 import { conflict, notFound, unprocessable } from "../errors.js";
@@ -325,13 +326,37 @@ export function agentService(db: Db) {
   }
 
   return {
-    list: async (companyId: string, options?: { includeTerminated?: boolean }) => {
+    list: async (companyId: string, options?: { includeTerminated?: boolean; includeCurrentTask?: boolean }) => {
       const conditions = [eq(agents.companyId, companyId)];
       if (!options?.includeTerminated) {
         conditions.push(ne(agents.status, "terminated"));
       }
       const rows = await db.select().from(agents).where(and(...conditions));
-      return rows.map(normalizeAgentRow);
+      const normalized = rows.map(normalizeAgentRow);
+
+      if (!options?.includeCurrentTask) {
+        return normalized;
+      }
+
+      const agentIds = normalized.map((a) => a.id);
+      if (agentIds.length === 0) return normalized;
+
+      const currentTasks = await db
+        .select({ assigneeAgentId: issues.assigneeAgentId, title: issues.title, identifier: issues.identifier })
+        .from(issues)
+        .where(and(eq(issues.companyId, companyId), eq(issues.status, "in_progress"), inArray(issues.assigneeAgentId, agentIds)));
+
+      const taskByAgent = new Map<string, { title: string; identifier: string | null }>();
+      for (const task of currentTasks) {
+        if (task.assigneeAgentId && !taskByAgent.has(task.assigneeAgentId)) {
+          taskByAgent.set(task.assigneeAgentId, { title: task.title, identifier: task.identifier });
+        }
+      }
+
+      return normalized.map((agent) => ({
+        ...agent,
+        currentTask: taskByAgent.get(agent.id) ?? null,
+      }));
     },
 
     getById,
