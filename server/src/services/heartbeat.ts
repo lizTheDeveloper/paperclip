@@ -798,11 +798,16 @@ export function heartbeatService(db: Db) {
     const runtimeConfig = parseObject(agent.runtimeConfig);
     const heartbeat = parseObject(runtimeConfig.heartbeat);
 
+    const rawRoleProfile = typeof heartbeat.roleProfile === "string" ? heartbeat.roleProfile.trim().toLowerCase() : null;
+    const roleProfile: "ic" | "pm" | "ceo" =
+      rawRoleProfile === "pm" ? "pm" : rawRoleProfile === "ceo" ? "ceo" : "ic";
+
     return {
       enabled: asBoolean(heartbeat.enabled, true),
       intervalSec: Math.max(0, asNumber(heartbeat.intervalSec, 0)),
       wakeOnDemand: asBoolean(heartbeat.wakeOnDemand ?? heartbeat.wakeOnAssignment ?? heartbeat.wakeOnOnDemand ?? heartbeat.wakeOnAutomation, true),
       maxConcurrentRuns: normalizeMaxConcurrentRuns(heartbeat.maxConcurrentRuns),
+      roleProfile,
     };
   }
 
@@ -1083,6 +1088,7 @@ export function heartbeatService(db: Db) {
 
     const runtime = await ensureRuntimeState(agent);
     const context = parseObject(run.contextSnapshot);
+    const policy = parseHeartbeatPolicy(agent);
 
     // Inject compact assignment queue so agents skip the list-issues API call
     const agentAssignments = await db
@@ -1104,6 +1110,7 @@ export function heartbeatService(db: Db) {
       );
     context.assignmentsJson = JSON.stringify(agentAssignments);
     context.agentRole = agent.role ?? "general";
+    context.heartbeatRoleProfile = policy.roleProfile;
 
     // Pre-fetch triggering task details and inject as PAPERCLIP_TASK_JSON.
     // Eliminates 2 API calls per task-triggered heartbeat across all agents.
@@ -1182,9 +1189,61 @@ export function heartbeatService(db: Db) {
       }
     }
 
+    // Inject role-specific context: PM gets team member status, CEO gets company dashboard.
+    if (policy.roleProfile === "pm" || policy.roleProfile === "ceo") {
+      try {
+        // Fetch agents that report to this agent (direct reports)
+        const teamMembers = await db
+          .select({
+            id: agents.id,
+            name: agents.name,
+            role: agents.role,
+            title: agents.title,
+            status: agents.status,
+          })
+          .from(agents)
+          .where(and(eq(agents.companyId, agent.companyId), eq(agents.reportsTo, agent.id)));
+        if (teamMembers.length > 0) {
+          context.teamStatusJson = JSON.stringify(teamMembers);
+        }
+      } catch (err) {
+        logger.warn({ err, agentId: agent.id }, "failed to pre-fetch team status; continuing without it");
+      }
+    }
+
+    if (policy.roleProfile === "ceo") {
+      try {
+        const agentRows = await db
+          .select({ status: agents.status, count: sql<number>`count(*)` })
+          .from(agents)
+          .where(eq(agents.companyId, agent.companyId))
+          .groupBy(agents.status);
+        const taskRows = await db
+          .select({ status: issues.status, count: sql<number>`count(*)` })
+          .from(issues)
+          .where(eq(issues.companyId, agent.companyId))
+          .groupBy(issues.status);
+        const agentCounts: Record<string, number> = {};
+        for (const row of agentRows) {
+          const s = row.status as string;
+          agentCounts[s] = (agentCounts[s] ?? 0) + Number(row.count);
+        }
+        const taskCounts: Record<string, number> = {};
+        for (const row of taskRows) {
+          const s = row.status as string;
+          taskCounts[s] = (taskCounts[s] ?? 0) + Number(row.count);
+        }
+        context.dashboardJson = JSON.stringify({ agents: agentCounts, tasks: taskCounts });
+      } catch (err) {
+        logger.warn({ err, agentId: agent.id }, "failed to pre-fetch dashboard summary; continuing without it");
+      }
+    }
+
     // Lightweight pre-check: skip the heartbeat entirely if there is no work
     // and no event-based wake trigger. This avoids spinning up an expensive
     // LLM session just to discover there is nothing to do.
+    // PM and CEO profiles are not skipped on empty inbox — they may have team
+    // coordination or dashboard review work to do even without direct assignments.
     const hasAssignments = agentAssignments.length > 0;
     const hasWakeTrigger =
       !!readNonEmptyString(context.taskId as string | undefined) ||
@@ -1192,7 +1251,8 @@ export function heartbeatService(db: Db) {
       !!readNonEmptyString(context.wakeCommentId as string | undefined) ||
       !!readNonEmptyString(context.commentId as string | undefined) ||
       !!readNonEmptyString(context.approvalId as string | undefined);
-    if (!hasAssignments && !hasWakeTrigger) {
+    const skipOnEmptyInbox = policy.roleProfile === "ic";
+    if (skipOnEmptyInbox && !hasAssignments && !hasWakeTrigger) {
       logger.info(
         {
           companyId: agent.companyId,

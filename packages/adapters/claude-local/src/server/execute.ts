@@ -232,6 +232,15 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   if (typeof context.taskJson === "string" && context.taskJson.length > 0) {
     env.PAPERCLIP_TASK_JSON = context.taskJson;
   }
+  if (typeof context.heartbeatRoleProfile === "string" && context.heartbeatRoleProfile.length > 0) {
+    env.PAPERCLIP_ROLE_PROFILE = context.heartbeatRoleProfile;
+  }
+  if (typeof context.teamStatusJson === "string" && context.teamStatusJson.length > 0) {
+    env.PAPERCLIP_TEAM_STATUS_JSON = context.teamStatusJson;
+  }
+  if (typeof context.dashboardJson === "string" && context.dashboardJson.length > 0) {
+    env.PAPERCLIP_DASHBOARD_JSON = context.dashboardJson;
+  }
 
   for (const [key, value] of Object.entries(envConfig)) {
     if (typeof value === "string") env[key] = value;
