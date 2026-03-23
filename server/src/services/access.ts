@@ -1,5 +1,6 @@
 import type { Db } from "@paperclipai/db";
 import {
+  agents,
   and,
   companyMemberships,
   eq,
@@ -51,8 +52,18 @@ export function accessService(db: Db) {
     principalId: string,
     permissionKey: PermissionKey,
   ): Promise<boolean> {
-    const membership = await getMembership(companyId, principalType, principalId);
-    if (!membership || membership.status !== "active") return false;
+    // Agents don't have companyMemberships rows — verify via agents table directly
+    if (principalType === "agent") {
+      const agent = await db
+        .select({ id: agents.id, status: agents.status })
+        .from(agents)
+        .where(and(eq(agents.id, principalId), eq(agents.companyId, companyId)))
+        .then((rows) => rows[0] ?? null);
+      if (!agent || agent.status === "terminated" || agent.status === "pending_approval") return false;
+    } else {
+      const membership = await getMembership(companyId, principalType, principalId);
+      if (!membership || membership.status !== "active") return false;
+    }
     const grant = await db
       .select({ id: principalPermissionGrants.id })
       .from(principalPermissionGrants)
