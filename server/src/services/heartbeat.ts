@@ -29,6 +29,7 @@ import type { AdapterExecutionResult, AdapterInvocationMeta, AdapterSessionCodec
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { parseObject, asBoolean, asNumber, appendWithCap, MAX_EXCERPT_BYTES } from "../adapters/utils.js";
 import { secretService } from "./secrets.js";
+import { projectService } from "./projects.js";
 import { resolveDefaultAgentWorkspaceDir } from "../home-paths.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
@@ -1163,6 +1164,7 @@ export function heartbeatService(db: Db) {
             status: issues.status,
             priority: issues.priority,
             parentId: issues.parentId,
+            projectId: issues.projectId,
           })
           .from(issues)
           .where(and(eq(issues.id, wakeTaskIdForFetch), eq(issues.companyId, agent.companyId)))
@@ -1193,6 +1195,12 @@ export function heartbeatService(db: Db) {
             .orderBy(desc(issueComments.createdAt))
             .limit(10);
 
+          // Fetch project with workspaces so agents know their workspace context
+          const projectsSvc = projectService(db);
+          const project = taskRow.projectId
+            ? await projectsSvc.getById(taskRow.projectId)
+            : null;
+
           const TASK_DESC_MAX = 4000;
           const COMMENT_BODY_MAX = 1000;
           const SECRET_PATTERN = /(?:api[_-]?key|password|secret|token|auth)[^\s]*\s*[:=]\s*\S+/gi;
@@ -1207,6 +1215,8 @@ export function heartbeatService(db: Db) {
               : null,
             status: taskRow.status,
             priority: taskRow.priority,
+            projectId: taskRow.projectId ?? null,
+            project: project ?? null,
             ancestors,
             recentComments: recentCommentRows.map((c) => ({
               id: c.id,
@@ -1739,6 +1749,7 @@ export function heartbeatService(db: Db) {
       await tx
         .update(issues)
         .set({
+          checkoutRunId: null,
           executionRunId: null,
           executionAgentNameKey: null,
           executionLockedAt: null,
