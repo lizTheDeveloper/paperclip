@@ -75,6 +75,24 @@ export function CompanySettings() {
     }
   });
 
+  const pauseMutation = useMutation({
+    mutationFn: (paused: boolean) =>
+      companiesApi.update(selectedCompanyId!, {
+        status: paused ? "paused" : "active"
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+    }
+  });
+
+  const concurrencyMutation = useMutation({
+    mutationFn: (maxConcurrentAgents: number) =>
+      companiesApi.update(selectedCompanyId!, { maxConcurrentAgents }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.companies.all });
+    }
+  });
+
   const inviteMutation = useMutation({
     mutationFn: () =>
       accessApi.createOpenClawInvitePrompt(selectedCompanyId!),
@@ -291,6 +309,38 @@ export function CompanySettings() {
           )}
         </div>
       )}
+
+      {/* Operations */}
+      <div className="space-y-4">
+        <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+          Operations
+        </div>
+        <div className="space-y-3 rounded-md border border-border px-4 py-4">
+          <ToggleField
+            label="Pause company"
+            hint="When paused, no agents in this company will run. Existing runs finish but no new ones start."
+            checked={selectedCompany.status === "paused"}
+            onChange={(v) => pauseMutation.mutate(v)}
+          />
+          <Field
+            label="Max concurrent agents"
+            hint="Maximum number of simultaneous agent runs across the company. 0 means unlimited."
+          >
+            <input
+              className="w-24 rounded-md border border-border bg-transparent px-2.5 py-1.5 text-sm outline-none"
+              type="number"
+              min={0}
+              value={selectedCompany.maxConcurrentAgents}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val) && val >= 0) {
+                  concurrencyMutation.mutate(val);
+                }
+              }}
+            />
+          </Field>
+        </div>
+      </div>
 
       {/* Hiring */}
       <div className="space-y-4">

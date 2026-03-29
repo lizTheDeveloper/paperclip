@@ -7,6 +7,7 @@ import {
   agentWakeupRequests,
   agents,
   and,
+  companies,
   asc,
   costEvents,
   desc,
@@ -839,6 +840,14 @@ export function heartbeatService(db: Db) {
     return Number(count ?? 0);
   }
 
+  async function countRunningRunsForCompany(companyId: string) {
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(heartbeatRuns)
+      .where(and(eq(heartbeatRuns.companyId, companyId), eq(heartbeatRuns.status, "running")));
+    return Number(count ?? 0);
+  }
+
   async function claimQueuedRun(run: typeof heartbeatRuns.$inferSelect) {
     if (run.status !== "queued") return run;
     const claimedAt = new Date();
@@ -1047,6 +1056,15 @@ export function heartbeatService(db: Db) {
     return withAgentStartLock(agentId, async () => {
       const agent = await getAgent(agentId);
       if (!agent) return [];
+
+      // Enforce company-level pause and concurrency limit
+      const [company] = await db.select().from(companies).where(eq(companies.id, agent.companyId));
+      if (company?.status === "paused") return [];
+      if (company && company.maxConcurrentAgents > 0) {
+        const companyRunning = await countRunningRunsForCompany(company.id);
+        if (companyRunning >= company.maxConcurrentAgents) return [];
+      }
+
       const policy = parseHeartbeatPolicy(agent);
       const runningCount = await countRunningRunsForAgent(agentId);
       const availableSlots = Math.max(0, policy.maxConcurrentRuns - runningCount);
@@ -1913,6 +1931,12 @@ export function heartbeatService(db: Db) {
       throw conflict("Agent is not invokable in its current state", { status: agent.status });
     }
 
+    // Check if the company is paused
+    const [company] = await db.select().from(companies).where(eq(companies.id, agent.companyId));
+    if (company?.status === "paused") {
+      throw conflict("Company is paused", { companyStatus: company.status });
+    }
+
     const policy = parseHeartbeatPolicy(agent);
     const writeSkippedRequest = async (reason: string) => {
       await db.insert(agentWakeupRequests).values({
@@ -2473,12 +2497,16 @@ export function heartbeatService(db: Db) {
 
     tickTimers: async (now = new Date()) => {
       const allAgents = await db.select().from(agents);
+      const allCompanies = await db.select().from(companies);
+      const companyMap = new Map(allCompanies.map((c) => [c.id, c]));
       let checked = 0;
       let enqueued = 0;
       let skipped = 0;
 
       for (const agent of allAgents) {
         if (agent.status === "paused" || agent.status === "terminated" || agent.status === "pending_approval") continue;
+        const agentCompany = companyMap.get(agent.companyId);
+        if (agentCompany?.status === "paused") continue;
         const policy = parseHeartbeatPolicy(agent);
         if (!policy.enabled || policy.intervalSec <= 0) continue;
 
