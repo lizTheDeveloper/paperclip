@@ -1963,6 +1963,15 @@ export function heartbeatService(db: Db) {
       return null;
     }
 
+    // Enforce company-level max concurrent agents
+    if (company && company.maxConcurrentAgents > 0) {
+      const companyRunning = await countRunningRunsForCompany(company.id);
+      if (companyRunning >= company.maxConcurrentAgents) {
+        await writeSkippedRequest("company.maxConcurrentAgents.reached");
+        return null;
+      }
+    }
+
     const bypassIssueExecutionLock =
       reason === "issue_comment_mentioned" ||
       readNonEmptyString(enrichedContextSnapshot.wakeReason) === "issue_comment_mentioned";
