@@ -12,22 +12,22 @@ importers:
   .:
     devDependencies:
       '@changesets/cli':
-        specifier: ^2.30.0
+        specifier: 2.30.0
         version: 2.30.0
       esbuild:
-        specifier: ^0.27.3
+        specifier: 0.27.4
         version: 0.27.4
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.0.5
+        specifier: 3.2.4
         version: 3.2.4
 
   cli:
     dependencies:
       '@clack/prompts':
-        specifier: ^0.10.0
+        specifier: 0.10.1
         version: 0.10.1
       '@paperclipai/adapter-claude-local':
         specifier: workspace:*
@@ -60,35 +60,35 @@ importers:
         specifier: workspace:*
         version: link:../packages/shared
       commander:
-        specifier: ^13.1.0
+        specifier: 13.1.0
         version: 13.1.0
       dotenv:
-        specifier: ^17.0.1
+        specifier: 17.3.1
         version: 17.3.1
       drizzle-orm:
         specifier: 0.38.4
-        version: 0.38.4(kysely@0.28.12)(pg@8.20.0)
+        version: 0.38.4(postgres@3.4.8)
       picocolors:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1
+      tsx:
+        specifier: 4.21.0
+        version: 4.21.0
     devDependencies:
       '@types/node':
-        specifier: ^22.12.0
+        specifier: 22.19.15
         version: 22.19.15
-      tsx:
-        specifier: ^4.19.2
-        version: 4.21.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/adapter-utils:
     devDependencies:
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/adapters/claude-local:
@@ -97,14 +97,14 @@ importers:
         specifier: workspace:*
         version: link:../../adapter-utils
       picocolors:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1
     devDependencies:
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/adapters/codex-local:
@@ -113,14 +113,14 @@ importers:
         specifier: workspace:*
         version: link:../../adapter-utils
       picocolors:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1
     devDependencies:
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/adapters/cursor-local:
@@ -129,14 +129,14 @@ importers:
         specifier: workspace:*
         version: link:../../adapter-utils
       picocolors:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1
     devDependencies:
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/adapters/openclaw-gateway:
@@ -145,20 +145,20 @@ importers:
         specifier: workspace:*
         version: link:../../adapter-utils
       picocolors:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1
       ws:
-        specifier: ^8.19.0
+        specifier: 8.19.0
         version: 8.19.0
     devDependencies:
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       '@types/ws':
-        specifier: ^8.18.1
+        specifier: 8.18.1
         version: 8.18.1
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/adapters/opencode-local:
@@ -167,14 +167,14 @@ importers:
         specifier: workspace:*
         version: link:../../adapter-utils
       picocolors:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1
     devDependencies:
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/adapters/pi-local:
@@ -183,14 +183,14 @@ importers:
         specifier: workspace:*
         version: link:../../adapter-utils
       picocolors:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1
     devDependencies:
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   packages/db:
@@ -202,39 +202,39 @@ importers:
         specifier: 0.38.4
         version: 0.38.4(postgres@3.4.8)
       postgres:
-        specifier: ^3.4.5
+        specifier: 3.4.8
         version: 3.4.8
     devDependencies:
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       drizzle-kit:
-        specifier: ^0.31.9
+        specifier: 0.31.9
         version: 0.31.9
       tsx:
-        specifier: ^4.19.2
+        specifier: 4.21.0
         version: 4.21.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
       vitest:
-        specifier: ^3.0.5
+        specifier: 3.2.4
         version: 3.2.4(@types/node@24.12.0)(tsx@4.21.0)
 
   packages/shared:
     dependencies:
       zod:
-        specifier: ^3.24.2
+        specifier: 3.25.76
         version: 3.25.76
     devDependencies:
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
 
   server:
     dependencies:
       '@aws-sdk/client-s3':
-        specifier: ^3.888.0
+        specifier: 3.1009.0
         version: 3.1009.0
       '@paperclipai/adapter-claude-local':
         specifier: workspace:*
@@ -265,91 +265,91 @@ importers:
         version: link:../packages/shared
       better-auth:
         specifier: 1.4.18
-        version: 1.4.18(drizzle-orm@0.38.4)(pg@8.20.0)(vitest@3.2.4)
+        version: 1.4.18(drizzle-orm@0.38.4)(vitest@3.2.4)
       detect-port:
-        specifier: ^2.1.0
+        specifier: 2.1.0
         version: 2.1.0
       dotenv:
-        specifier: ^17.0.1
+        specifier: 17.3.1
         version: 17.3.1
       drizzle-orm:
         specifier: 0.38.4
-        version: 0.38.4(kysely@0.28.12)(pg@8.20.0)
+        version: 0.38.4(postgres@3.4.8)
       embedded-postgres:
-        specifier: ^18.1.0-beta.16
+        specifier: 18.1.0-beta.16
         version: 18.1.0-beta.16
       express:
-        specifier: ^5.1.0
+        specifier: 5.2.1
         version: 5.2.1
       multer:
-        specifier: ^2.0.2
+        specifier: 2.1.1
         version: 2.1.1
       open:
-        specifier: ^11.0.0
+        specifier: 11.0.0
         version: 11.0.0
       pino:
-        specifier: ^9.6.0
+        specifier: 9.14.0
         version: 9.14.0
       pino-http:
-        specifier: ^10.4.0
+        specifier: 10.5.0
         version: 10.5.0
       pino-pretty:
-        specifier: ^13.1.3
+        specifier: 13.1.3
         version: 13.1.3
       ws:
-        specifier: ^8.19.0
+        specifier: 8.19.0
         version: 8.19.0
       zod:
-        specifier: ^3.24.2
+        specifier: 3.25.76
         version: 3.25.76
     devDependencies:
       '@types/express':
-        specifier: ^5.0.0
+        specifier: 5.0.6
         version: 5.0.6
       '@types/express-serve-static-core':
-        specifier: ^5.0.0
+        specifier: 5.1.1
         version: 5.1.1
       '@types/multer':
-        specifier: ^2.0.0
+        specifier: 2.1.0
         version: 2.1.0
       '@types/node':
-        specifier: ^24.6.0
+        specifier: 24.12.0
         version: 24.12.0
       '@types/supertest':
-        specifier: ^6.0.2
+        specifier: 6.0.3
         version: 6.0.3
       '@types/ws':
-        specifier: ^8.18.1
+        specifier: 8.18.1
         version: 8.18.1
       supertest:
-        specifier: ^7.0.0
+        specifier: 7.2.2
         version: 7.2.2
       tsx:
-        specifier: ^4.19.2
+        specifier: 4.21.0
         version: 4.21.0
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
       vite:
-        specifier: ^6.1.0
+        specifier: 6.4.1
         version: 6.4.1(@types/node@24.12.0)(tsx@4.21.0)
       vitest:
-        specifier: ^3.0.5
+        specifier: 3.2.4
         version: 3.2.4(@types/node@24.12.0)(tsx@4.21.0)
 
   ui:
     dependencies:
       '@dnd-kit/core':
-        specifier: ^6.3.1
+        specifier: 6.3.1
         version: 6.3.1(react-dom@19.2.4)(react@19.2.4)
       '@dnd-kit/sortable':
-        specifier: ^10.0.0
+        specifier: 10.0.0
         version: 10.0.0(@dnd-kit/core@6.3.1)(react@19.2.4)
       '@dnd-kit/utilities':
-        specifier: ^3.2.2
+        specifier: 3.2.2
         version: 3.2.2(react@19.2.4)
       '@mdxeditor/editor':
-        specifier: ^3.52.4
+        specifier: 3.52.4
         version: 3.52.4(@codemirror/language@6.12.2)(@lezer/highlight@1.2.3)(@types/react-dom@19.2.3)(@types/react@19.2.14)(react-dom@19.2.4)(react@19.2.4)(yjs@13.6.30)
       '@paperclipai/adapter-claude-local':
         specifier: workspace:*
@@ -376,77 +376,77 @@ importers:
         specifier: workspace:*
         version: link:../packages/shared
       '@radix-ui/react-slot':
-        specifier: ^1.2.4
+        specifier: 1.2.4
         version: 1.2.4(@types/react@19.2.14)(react@19.2.4)
       '@tailwindcss/typography':
-        specifier: ^0.5.19
+        specifier: 0.5.19
         version: 0.5.19(tailwindcss@4.2.1)
       '@tanstack/react-query':
-        specifier: ^5.90.21
+        specifier: 5.90.21
         version: 5.90.21(react@19.2.4)
       class-variance-authority:
-        specifier: ^0.7.1
+        specifier: 0.7.1
         version: 0.7.1
       clsx:
-        specifier: ^2.1.1
+        specifier: 2.1.1
         version: 2.1.1
       cmdk:
-        specifier: ^1.1.1
+        specifier: 1.1.1
         version: 1.1.1(@types/react-dom@19.2.3)(@types/react@19.2.14)(react-dom@19.2.4)(react@19.2.4)
       lucide-react:
-        specifier: ^0.574.0
+        specifier: 0.574.0
         version: 0.574.0(react@19.2.4)
       mermaid:
-        specifier: ^11.12.0
+        specifier: 11.13.0
         version: 11.13.0
       radix-ui:
-        specifier: ^1.4.3
+        specifier: 1.4.3
         version: 1.4.3(@types/react-dom@19.2.3)(@types/react@19.2.14)(react-dom@19.2.4)(react@19.2.4)
       react:
-        specifier: ^19.0.0
+        specifier: 19.2.4
         version: 19.2.4
       react-dom:
-        specifier: ^19.0.0
+        specifier: 19.2.4
         version: 19.2.4(react@19.2.4)
       react-markdown:
-        specifier: ^10.1.0
+        specifier: 10.1.0
         version: 10.1.0(@types/react@19.2.14)(react@19.2.4)
       react-router-dom:
-        specifier: ^7.1.5
+        specifier: 7.13.1
         version: 7.13.1(react-dom@19.2.4)(react@19.2.4)
       remark-gfm:
-        specifier: ^4.0.1
+        specifier: 4.0.1
         version: 4.0.1
       tailwind-merge:
-        specifier: ^3.4.1
+        specifier: 3.5.0
         version: 3.5.0
     devDependencies:
       '@tailwindcss/vite':
-        specifier: ^4.0.7
+        specifier: 4.2.1
         version: 4.2.1(vite@6.4.1)
       '@types/node':
-        specifier: ^25.2.3
+        specifier: 25.5.0
         version: 25.5.0
       '@types/react':
-        specifier: ^19.0.8
+        specifier: 19.2.14
         version: 19.2.14
       '@types/react-dom':
-        specifier: ^19.0.3
+        specifier: 19.2.3
         version: 19.2.3(@types/react@19.2.14)
       '@vitejs/plugin-react':
-        specifier: ^4.3.4
+        specifier: 4.7.0
         version: 4.7.0(vite@6.4.1)
       tailwindcss:
-        specifier: ^4.0.7
+        specifier: 4.2.1
         version: 4.2.1
       typescript:
-        specifier: ^5.7.3
+        specifier: 5.9.3
         version: 5.9.3
       vite:
-        specifier: ^6.1.0
+        specifier: 6.4.1
         version: 6.4.1(@types/node@25.5.0)
       vitest:
-        specifier: ^3.0.5
+        specifier: 3.2.4
         version: 3.2.4(@types/node@25.5.0)
 
 packages:
@@ -1210,6 +1210,9 @@ packages:
       jose: ^6.1.0
       kysely: ^0.28.5
       nanostores: ^1.0.1
+    peerDependenciesMeta:
+      kysely:
+        optional: true
     dependencies:
       '@better-auth/utils': 0.3.0
       '@better-fetch/fetch': 1.1.21
@@ -5444,7 +5447,7 @@ packages:
     resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
     dependencies:
       '@types/connect': 3.4.38
-      '@types/node': 24.12.0
+      '@types/node': 25.5.0
     dev: true
 
   /@types/chai@5.2.3:
@@ -5456,7 +5459,7 @@ packages:
   /@types/connect@3.4.38:
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
     dependencies:
-      '@types/node': 24.12.0
+      '@types/node': 25.5.0
     dev: true
 
   /@types/cookiejar@2.1.5:
@@ -5663,7 +5666,7 @@ packages:
   /@types/express-serve-static-core@5.1.1:
     resolution: {integrity: sha512-v4zIMr/cX7/d2BpAEX3KNKL/JrT1s43s96lLvvdTmza1oEvDudCqK9aF/djc/SWgy8Yh0h30TZx5VpzqFCxk5A==}
     dependencies:
-      '@types/node': 24.12.0
+      '@types/node': 25.5.0
       '@types/qs': 6.15.0
       '@types/range-parser': 1.2.7
       '@types/send': 1.2.1
@@ -5755,14 +5758,14 @@ packages:
   /@types/send@1.2.1:
     resolution: {integrity: sha512-arsCikDvlU99zl1g69TcAB3mzZPpxgw0UQnaHeC1Nwb015xp8bknZv5rIfri9xTOcMuaVgvabfIRA7PSZVuZIQ==}
     dependencies:
-      '@types/node': 24.12.0
+      '@types/node': 25.5.0
     dev: true
 
   /@types/serve-static@2.2.0:
     resolution: {integrity: sha512-8mam4H1NHLtu7nmtalF7eyBH14QyOASmcxHhSfEoRyr0nP/YdoesEtU+uSRvMe96TW/HPTtkoKqQLl53N7UXMQ==}
     dependencies:
       '@types/http-errors': 2.0.5
-      '@types/node': 24.12.0
+      '@types/node': 25.5.0
     dev: true
 
   /@types/superagent@8.1.9:
@@ -5770,7 +5773,7 @@ packages:
     dependencies:
       '@types/cookiejar': 2.1.5
       '@types/methods': 1.1.4
-      '@types/node': 24.12.0
+      '@types/node': 25.5.0
       form-data: 4.0.5
     dev: true
 
@@ -5798,7 +5801,7 @@ packages:
   /@types/ws@8.18.1:
     resolution: {integrity: sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg==}
     dependencies:
-      '@types/node': 24.12.0
+      '@types/node': 25.5.0
     dev: true
 
   /@ungap/structured-clone@1.3.0:
@@ -5987,7 +5990,7 @@ packages:
     hasBin: true
     dev: true
 
-  /better-auth@1.4.18(drizzle-orm@0.38.4)(pg@8.20.0)(vitest@3.2.4):
+  /better-auth@1.4.18(drizzle-orm@0.38.4)(vitest@3.2.4):
     resolution: {integrity: sha512-bnyifLWBPcYVltH3RhS7CM62MoelEqC6Q+GnZwfiDWNfepXoQZBjEvn4urcERC7NTKgKq5zNBM8rvPvRBa6xcg==}
     peerDependencies:
       '@lynx-js/react': '*'
@@ -6057,11 +6060,10 @@ packages:
       '@noble/hashes': 2.0.1
       better-call: 1.1.8(zod@3.25.76)
       defu: 6.1.4
-      drizzle-orm: 0.38.4(kysely@0.28.12)(pg@8.20.0)
+      drizzle-orm: 0.38.4(postgres@3.4.8)
       jose: 6.2.1
       kysely: 0.28.12
       nanostores: 1.1.1
-      pg: 8.20.0
       vitest: 3.2.4(@types/node@24.12.0)(tsx@4.21.0)
       zod: 4.3.6
     dev: false
@@ -6885,102 +6887,6 @@ packages:
     transitivePeerDependencies:
       - supports-color
     dev: true
-
-  /drizzle-orm@0.38.4(kysely@0.28.12)(pg@8.20.0):
-    resolution: {integrity: sha512-s7/5BpLKO+WJRHspvpqTydxFob8i1vo2rEx4pY6TGY7QSMuUfWUuzaY0DIpXCkgHOo37BaFC+SJQb99dDUXT3Q==}
-    peerDependencies:
-      '@aws-sdk/client-rds-data': '>=3'
-      '@cloudflare/workers-types': '>=4'
-      '@electric-sql/pglite': '>=0.2.0'
-      '@libsql/client': '>=0.10.0'
-      '@libsql/client-wasm': '>=0.10.0'
-      '@neondatabase/serverless': '>=0.10.0'
-      '@op-engineering/op-sqlite': '>=2'
-      '@opentelemetry/api': ^1.4.1
-      '@planetscale/database': '>=1'
-      '@prisma/client': '*'
-      '@tidbcloud/serverless': '*'
-      '@types/better-sqlite3': '*'
-      '@types/pg': '*'
-      '@types/react': '>=18'
-      '@types/sql.js': '*'
-      '@vercel/postgres': '>=0.8.0'
-      '@xata.io/client': '*'
-      better-sqlite3: '>=7'
-      bun-types: '*'
-      expo-sqlite: '>=14.0.0'
-      knex: '*'
-      kysely: '*'
-      mysql2: '>=2'
-      pg: '>=8'
-      postgres: '>=3'
-      prisma: '*'
-      react: '>=18'
-      sql.js: '>=1'
-      sqlite3: '>=5'
-    peerDependenciesMeta:
-      '@aws-sdk/client-rds-data':
-        optional: true
-      '@cloudflare/workers-types':
-        optional: true
-      '@electric-sql/pglite':
-        optional: true
-      '@libsql/client':
-        optional: true
-      '@libsql/client-wasm':
-        optional: true
-      '@neondatabase/serverless':
-        optional: true
-      '@op-engineering/op-sqlite':
-        optional: true
-      '@opentelemetry/api':
-        optional: true
-      '@planetscale/database':
-        optional: true
-      '@prisma/client':
-        optional: true
-      '@tidbcloud/serverless':
-        optional: true
-      '@types/better-sqlite3':
-        optional: true
-      '@types/pg':
-        optional: true
-      '@types/react':
-        optional: true
-      '@types/sql.js':
-        optional: true
-      '@vercel/postgres':
-        optional: true
-      '@xata.io/client':
-        optional: true
-      better-sqlite3:
-        optional: true
-      bun-types:
-        optional: true
-      expo-sqlite:
-        optional: true
-      knex:
-        optional: true
-      kysely:
-        optional: true
-      mysql2:
-        optional: true
-      pg:
-        optional: true
-      postgres:
-        optional: true
-      prisma:
-        optional: true
-      react:
-        optional: true
-      sql.js:
-        optional: true
-      sqlite3:
-        optional: true
-    dependencies:
-      kysely: 0.28.12
-      pg: 8.20.0
-    dev: false
 
   /drizzle-orm@0.38.4(postgres@3.4.8):
     resolution: {integrity: sha512-s7/5BpLKO+WJRHspvpqTydxFob8i1vo2rEx4pY6TGY7QSMuUfWUuzaY0DIpXCkgHOo37BaFC+SJQb99dDUXT3Q==}
@@ -9028,6 +8934,9 @@ packages:
     resolution: {integrity: sha512-gB+R+Xud1gLFuRD/QgOIgGOBE2KCQPaPwkzBBGC9oG69pHTkhQeIuejVIk3/cnDyX39av2AxomQiyPT13WKHQA==}
     peerDependencies:
       pg: '>=8.0'
+    peerDependenciesMeta:
+      pg:
+        optional: true
     dependencies:
       pg: 8.20.0
     dev: false
@@ -10284,7 +10193,7 @@ packages:
       debug: 4.4.3
       es-module-lexer: 1.7.0
       pathe: 2.0.3
-      vite: 6.4.1
+      vite: 6.4.1(@types/node@24.12.0)(tsx@4.21.0)
     transitivePeerDependencies:
       - '@types/node'
       - jiti
@@ -10347,56 +10256,6 @@ packages:
       - terser
       - tsx
       - yaml
-    dev: true
-
-  /vite@6.4.1:
-    resolution: {integrity: sha512-+Oxm7q9hDoLMyJOYfUYBuHQo+dkAloi33apOPP56pzj+vsdJDzr+j1NISE5pyaAuKL4A3UD34qd0lx5+kfKp2g==}
-    engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
-    hasBin: true
-    peerDependencies:
-      '@types/node': ^18.0.0 || ^20.0.0 || >=22.0.0
-      jiti: '>=1.21.0'
-      less: '*'
-      lightningcss: ^1.21.0
-      sass: '*'
-      sass-embedded: '*'
-      stylus: '*'
-      sugarss: '*'
-      terser: ^5.16.0
-      tsx: ^4.8.1
-      yaml: ^2.4.2
-    peerDependenciesMeta:
-      '@types/node':
-        optional: true
-      jiti:
-        optional: true
-      less:
-        optional: true
-      lightningcss:
-        optional: true
-      sass:
-        optional: true
-      sass-embedded:
-        optional: true
-      stylus:
-        optional: true
-      sugarss:
-        optional: true
-      terser:
-        optional: true
-      tsx:
-        optional: true
-      yaml:
-        optional: true
-    dependencies:
-      esbuild: 0.25.12
-      fdir: 6.5.0(picomatch@4.0.3)
-      picomatch: 4.0.3
-      postcss: 8.5.8
-      rollup: 4.59.0
-      tinyglobby: 0.2.15
-    optionalDependencies:
-      fsevents: 2.3.3
     dev: true
 
   /vite@6.4.1(@types/node@24.12.0)(tsx@4.21.0):
@@ -10549,7 +10408,7 @@ packages:
       tinyglobby: 0.2.15
       tinypool: 1.1.1
       tinyrainbow: 2.0.0
-      vite: 6.4.1
+      vite: 6.4.1(@types/node@24.12.0)(tsx@4.21.0)
       vite-node: 3.2.4
       why-is-node-running: 2.3.0
     transitivePeerDependencies:
