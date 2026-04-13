@@ -92,13 +92,30 @@ Environment variables tell you why you woke up:
 }
 
 /**
+ * Parse the `roles` field from a SKILL.md YAML frontmatter block.
+ * Returns null if no roles field (universal skill) or on read error.
+ */
+async function parseSkillRoles(skillDir: string): Promise<string[] | null> {
+  try {
+    const content = await fs.readFile(path.join(skillDir, "SKILL.md"), "utf-8");
+    const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (!fmMatch) return null;
+    const rolesMatch = fmMatch[1].match(/^roles:\s*\[([^\]]*)\]/m);
+    if (!rolesMatch) return null;
+    return rolesMatch[1].split(",").map((r) => r.trim()).filter(Boolean);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Create a tmpdir with \`.claude/skills/\` containing:
  * 1. A generated minimal bootstrap skill (replaces full protocol skills)
- * 2. Symlinks to all other skills from the repo's \`skills/\` directory
+ * 2. Symlinks to role-appropriate skills from the repo's \`skills/\` directory
  *
  * Claude Code discovers these via \`--add-dir\`.
  */
-async function buildSkillsDir(_agentRole?: string | null): Promise<string> {
+async function buildSkillsDir(agentRole?: string | null): Promise<string> {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skills-"));
   const target = path.join(tmp, ".claude", "skills");
   await fs.mkdir(target, { recursive: true });
@@ -108,7 +125,7 @@ async function buildSkillsDir(_agentRole?: string | null): Promise<string> {
   await fs.mkdir(bootstrapDir, { recursive: true });
   await fs.writeFile(path.join(bootstrapDir, "SKILL.md"), buildBootstrapSkillContent(), "utf-8");
 
-  // Symlink all non-protocol skills from the skills directory
+  // Symlink role-appropriate non-protocol skills from the skills directory
   const skillsDir = await resolvePaperclipSkillsDir();
   if (skillsDir) {
     const entries = await fs.readdir(skillsDir, { withFileTypes: true });
@@ -120,6 +137,14 @@ async function buildSkillsDir(_agentRole?: string | null): Promise<string> {
       }
       // Skip all legacy protocol skills — replaced by bootstrap
       if (PAPERCLIP_PROTOCOL_SKILLS.has(entry.name)) continue;
+
+      // Role-based filtering: if skill declares allowed roles in frontmatter,
+      // only include it when the agent's role matches. No roles = universal.
+      if (agentRole) {
+        const allowedRoles = await parseSkillRoles(path.join(skillsDir, entry.name));
+        if (allowedRoles && !allowedRoles.includes(agentRole)) continue;
+      }
+
       await fs.symlink(
         path.join(skillsDir, entry.name),
         path.join(target, entry.name),

@@ -6,6 +6,7 @@ description: >
   "release vX.Y.Z". Runs pre-flight checks, generates changelog via
   release-changelog, executes npm release, creates cross-project follow-up
   tasks, and posts a release wrap-up.
+roles: [ceo, cto, pm, engineer]
 ---
 
 # Release Coordination Skill

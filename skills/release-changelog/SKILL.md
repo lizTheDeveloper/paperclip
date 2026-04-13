@@ -6,6 +6,7 @@ description: >
   changes, categorizes changes, and outputs structured markdown to
   releases/v{version}.md. Use when preparing a release or when asked to
   generate a changelog.
+roles: [ceo, cto, pm, engineer]
 ---
 
 # Release Changelog Skill

@@ -14,3 +14,4 @@ export { llmRoutes } from "./llms.js";
 export { accessRoutes } from "./access.js";
 export { apiDocsRoutes } from "./api-docs.js";
 export { reportRoutes } from "./reports.js";
+export { specsRoutes } from "./specs.js";
