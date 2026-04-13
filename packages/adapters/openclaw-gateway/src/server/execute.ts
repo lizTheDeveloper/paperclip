@@ -330,11 +330,17 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
   if (typeof ctx.context.assignmentsJson === "string" && ctx.context.assignmentsJson.length > 0) {
     paperclipEnv.PAPERCLIP_ASSIGNMENTS_JSON = ctx.context.assignmentsJson;
   }
+  if (typeof ctx.context.assignmentsSummary === "string" && ctx.context.assignmentsSummary.length > 0) {
+    paperclipEnv.PAPERCLIP_ASSIGNMENTS_SUMMARY = ctx.context.assignmentsSummary;
+  }
   if (typeof ctx.context.agentRole === "string" && ctx.context.agentRole.length > 0) {
     paperclipEnv.PAPERCLIP_AGENT_ROLE = ctx.context.agentRole;
   }
   if (typeof ctx.context.taskJson === "string" && ctx.context.taskJson.length > 0) {
     paperclipEnv.PAPERCLIP_TASK_JSON = ctx.context.taskJson;
+  }
+  if (typeof ctx.context.teamSummary === "string" && ctx.context.teamSummary.length > 0) {
+    paperclipEnv.PAPERCLIP_TEAM_SUMMARY = ctx.context.teamSummary;
   }
   if (typeof ctx.context.onIdleBehavior === "string" && ctx.context.onIdleBehavior.length > 0) {
     paperclipEnv.PAPERCLIP_ON_IDLE_BEHAVIOR = ctx.context.onIdleBehavior;
@@ -577,6 +583,8 @@ class GatewayWsClient {
       this.resolveChallenge = resolve;
       this.rejectChallenge = reject;
     });
+    // Prevent unhandled rejection if the websocket closes before the challenge is awaited
+    this.challengePromise.catch(() => {});
   }
 
   async connect(
@@ -597,6 +605,7 @@ class GatewayWsClient {
     ws.on("close", (code, reason) => {
       const reasonText = rawDataToString(reason);
       const err = new Error(`gateway closed (${code}): ${reasonText}`);
+      void this.opts.onLog("stderr", `[openclaw-gateway] ${err.message}\n`);
       this.failPending(err);
       this.rejectChallenge(err);
     });

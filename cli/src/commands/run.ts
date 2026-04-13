@@ -107,7 +107,9 @@ async function importServerEntry(): Promise<void> {
   const devEntry = path.resolve(projectRoot, "server/src/index.ts");
   if (fs.existsSync(devEntry)) {
     maybeEnableUiDevMiddleware(devEntry);
-    await import(pathToFileURL(devEntry).href);
+    // Use tsx to handle TypeScript imports (e.g. workspace packages with .ts exports)
+    const { tsImport } = await import("tsx/esm/api");
+    await tsImport(devEntry, import.meta.url);
     return;
   }
 

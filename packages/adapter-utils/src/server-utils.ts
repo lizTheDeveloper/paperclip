@@ -217,6 +217,8 @@ export async function runChildProcess(
     onLog: (stream: "stdout" | "stderr", chunk: string) => Promise<void>;
     onLogError?: (err: unknown, runId: string, message: string) => void;
     stdin?: string;
+    keepStdinOpen?: boolean;
+    closeStdinOnPattern?: string;
   },
 ): Promise<RunProcessResult> {
   const onLogError = opts.onLogError ?? ((err, id, msg) => console.warn({ err, runId: id }, msg));
@@ -232,7 +234,9 @@ export async function runChildProcess(
 
     if (opts.stdin != null && child.stdin) {
       child.stdin.write(opts.stdin);
-      child.stdin.end();
+      if (!opts.keepStdinOpen) {
+        child.stdin.end();
+      }
     }
 
     runningProcesses.set(runId, { child, graceSec: opts.graceSec });
@@ -255,12 +259,17 @@ export async function runChildProcess(
           }, opts.timeoutSec * 1000)
         : null;
 
+    let stdinClosed = !opts.keepStdinOpen;
     child.stdout?.on("data", (chunk: unknown) => {
       const text = String(chunk);
       stdout = appendWithCap(stdout, text);
       logChain = logChain
         .then(() => opts.onLog("stdout", text))
         .catch((err) => onLogError(err, runId, "failed to append stdout log chunk"));
+      if (!stdinClosed && opts.closeStdinOnPattern && text.includes(opts.closeStdinOnPattern)) {
+        stdinClosed = true;
+        child.stdin?.end();
+      }
     });
 
     child.stderr?.on("data", (chunk: unknown) => {

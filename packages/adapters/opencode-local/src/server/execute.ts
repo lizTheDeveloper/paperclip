@@ -61,7 +61,12 @@ async function ensureOpenCodeSkillsInjected(onLog: AdapterExecutionContext["onLo
   await fs.mkdir(skillsHome, { recursive: true });
   const entries = await fs.readdir(skillsDir, { withFileTypes: true });
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    // Follow symlinks: Dirent.isDirectory() is false for symlinks even when target is a dir
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (entry.isSymbolicLink()) {
+      const resolved = await fs.stat(path.join(skillsDir, entry.name)).catch(() => null);
+      if (!resolved?.isDirectory()) continue;
+    }
     const source = path.join(skillsDir, entry.name);
     const target = path.join(skillsHome, entry.name);
     const existing = await fs.lstat(target).catch(() => null);
@@ -154,11 +159,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (typeof context.assignmentsJson === "string" && context.assignmentsJson.length > 0) {
     env.PAPERCLIP_ASSIGNMENTS_JSON = context.assignmentsJson;
   }
+  if (typeof context.assignmentsSummary === "string" && context.assignmentsSummary.length > 0) {
+    env.PAPERCLIP_ASSIGNMENTS_SUMMARY = context.assignmentsSummary;
+  }
   if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
     env.PAPERCLIP_AGENT_ROLE = context.agentRole;
   }
   if (typeof context.taskJson === "string" && context.taskJson.length > 0) {
     env.PAPERCLIP_TASK_JSON = context.taskJson;
+  }
+  if (typeof context.teamSummary === "string" && context.teamSummary.length > 0) {
+    env.PAPERCLIP_TEAM_SUMMARY = context.teamSummary;
   }
   if (typeof context.onIdleBehavior === "string" && context.onIdleBehavior.length > 0) {
     env.PAPERCLIP_ON_IDLE_BEHAVIOR = context.onIdleBehavior;

@@ -190,6 +190,41 @@
       "when": 1774954800000,
       "tag": "0026_company_pause_and_concurrency",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1775600000000,
+      "tag": "0027_agent_pending_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1775686400000,
+      "tag": "0028_agent_emails",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1775686500000,
+      "tag": "0029_agent_matrix_messages",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1775686600000,
+      "tag": "0030_company_summaries",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1775686700000,
+      "tag": "0031_board_notifications",
+      "breakpoints": true
     }
   ]
 }

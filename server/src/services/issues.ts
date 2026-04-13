@@ -965,12 +965,16 @@ export function issueService(db: Db) {
         existing.checkoutRunId &&
         !sameRunLock(existing.checkoutRunId, actorRunId ?? null)
       ) {
-        throw conflict("Only checkout run can release issue", {
-          issueId: existing.id,
-          assigneeAgentId: existing.assigneeAgentId,
-          checkoutRunId: existing.checkoutRunId,
-          actorRunId: actorRunId ?? null,
-        });
+        // Allow release if the old checkout run is terminal (timed_out, failed, etc.)
+        const stale = await isTerminalOrMissingHeartbeatRun(existing.checkoutRunId);
+        if (!stale) {
+          throw conflict("Only checkout run can release issue", {
+            issueId: existing.id,
+            assigneeAgentId: existing.assigneeAgentId,
+            checkoutRunId: existing.checkoutRunId,
+            actorRunId: actorRunId ?? null,
+          });
+        }
       }
 
       const updated = await db

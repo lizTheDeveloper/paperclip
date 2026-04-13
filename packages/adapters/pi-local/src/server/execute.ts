@@ -67,7 +67,12 @@ async function ensurePiSkillsInjected(onLog: AdapterExecutionContext["onLog"]) {
   
   const entries = await fs.readdir(skillsDir, { withFileTypes: true });
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    // Follow symlinks: Dirent.isDirectory() is false for symlinks even when target is a dir
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    if (entry.isSymbolicLink()) {
+      const resolved = await fs.stat(path.join(skillsDir, entry.name)).catch(() => null);
+      if (!resolved?.isDirectory()) continue;
+    }
     const source = path.join(skillsDir, entry.name);
     const target = path.join(piSkillsHome, entry.name);
     const existing = await fs.lstat(target).catch(() => null);
@@ -85,6 +90,26 @@ async function ensurePiSkillsInjected(onLog: AdapterExecutionContext["onLog"]) {
         `[paperclip] Failed to inject Pi skill "${entry.name}" into ${piSkillsHome}: ${err instanceof Error ? err.message : String(err)}\n`,
       );
     }
+  }
+}
+
+async function readPaperclipSkillContent(): Promise<string> {
+  // Try the standard skill candidates first
+  const skillsDir = await resolvePaperclipSkillsDir();
+  if (skillsDir) {
+    const skillFile = path.join(skillsDir, "paperclip", "SKILL.md");
+    try {
+      return await fs.readFile(skillFile, "utf8");
+    } catch {
+      // Fall through to other locations
+    }
+  }
+  // Try the Pi agent skills directory (where skills are symlinked at runtime)
+  const piSkillsHome = path.join(os.homedir(), ".pi", "agent", "skills", "paperclip", "SKILL.md");
+  try {
+    return await fs.readFile(piSkillsHome, "utf8");
+  } catch {
+    return "";
   }
 }
 
@@ -182,11 +207,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
   if (typeof context.assignmentsJson === "string" && context.assignmentsJson.length > 0) {
     env.PAPERCLIP_ASSIGNMENTS_JSON = context.assignmentsJson;
   }
+  if (typeof context.assignmentsSummary === "string" && context.assignmentsSummary.length > 0) {
+    env.PAPERCLIP_ASSIGNMENTS_SUMMARY = context.assignmentsSummary;
+  }
   if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
     env.PAPERCLIP_AGENT_ROLE = context.agentRole;
   }
   if (typeof context.taskJson === "string" && context.taskJson.length > 0) {
     env.PAPERCLIP_TASK_JSON = context.taskJson;
+  }
+  if (typeof context.teamSummary === "string" && context.teamSummary.length > 0) {
+    env.PAPERCLIP_TEAM_SUMMARY = context.teamSummary;
   }
   if (typeof context.onIdleBehavior === "string" && context.onIdleBehavior.length > 0) {
     env.PAPERCLIP_ON_IDLE_BEHAVIOR = context.onIdleBehavior;
@@ -291,7 +322,14 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       systemPromptExtension = promptTemplate;
     }
   } else {
-    systemPromptExtension = promptTemplate;
+    // When no instructions file is configured, inject the Paperclip skill content
+    // so the agent knows how to interact with the Paperclip API
+    const skillContent = await readPaperclipSkillContent();
+    if (skillContent) {
+      systemPromptExtension = `${skillContent}\n\n${promptTemplate}`;
+    } else {
+      systemPromptExtension = promptTemplate;
+    }
   }
 
   const renderedSystemPromptExtension = renderTemplate(systemPromptExtension, {
@@ -403,6 +441,8 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
       graceSec,
       onLog: bufferedOnLog,
       stdin: buildRpcStdin(),
+      keepStdinOpen: true,
+      closeStdinOnPattern: '"type":"agent_end"',
     });
     
     // Flush any remaining buffer content

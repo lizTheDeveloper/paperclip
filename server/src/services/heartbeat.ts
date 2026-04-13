@@ -2,6 +2,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Db } from "@paperclipai/db";
 import {
+  agentEmails,
+  agentMatrixMessages,
+  agentPendingNotifications,
   agentRuntimeState,
   agentTaskSessions,
   agentWakeupRequests,
@@ -16,8 +19,10 @@ import {
   heartbeatRunEvents,
   heartbeatRuns,
   inArray,
+  isNull,
   issueComments,
   issues,
+  projects,
   projectWorkspaces,
   sql,
 } from "@paperclipai/db";
@@ -30,7 +35,7 @@ import type { AdapterExecutionResult, AdapterInvocationMeta, AdapterSessionCodec
 import { createLocalAgentJwt } from "../agent-auth-jwt.js";
 import { parseObject, asBoolean, asNumber, appendWithCap, MAX_EXCERPT_BYTES } from "../adapters/utils.js";
 import { secretService } from "./secrets.js";
-import { projectService } from "./projects.js";
+// projectService import removed — compact context collapsing queries projects table directly
 import { resolveDefaultAgentWorkspaceDir } from "../home-paths.js";
 
 const MAX_LIVE_LOG_CHUNK_BYTES = 8 * 1024;
@@ -1146,10 +1151,65 @@ export function heartbeatService(db: Db) {
           inArray(issues.status, ["todo", "in_progress", "blocked"]),
         ),
       );
-    context.assignmentsJson = JSON.stringify(agentAssignments);
+    // Tier 1: Compact assignment summary instead of full JSON blob
+    const statusCounts: Record<string, number> = {};
+    const inProgressItems: string[] = [];
+    for (const a of agentAssignments) {
+      statusCounts[a.status] = (statusCounts[a.status] ?? 0) + 1;
+      if (a.status === "in_progress") {
+        inProgressItems.push(`${a.identifier ?? "?"}: ${a.title}`);
+      }
+    }
+    const statusParts = Object.entries(statusCounts).map(([s, c]) => `${c} ${s}`);
+    const summaryLine = agentAssignments.length === 0
+      ? "No assignments"
+      : `${agentAssignments.length} tasks: ${statusParts.join(", ")}`;
+    const inProgressDetail = inProgressItems.length > 0
+      ? `\nIn progress: ${inProgressItems.join("; ")}`
+      : "";
+    context.assignmentsSummary = summaryLine + inProgressDetail;
+    // Keep assignmentsJson as compact list (identifier + status only) for template rendering
+    context.assignmentsJson = JSON.stringify(
+      agentAssignments.map((a) => ({ identifier: a.identifier, title: a.title, status: a.status })),
+    );
     context.agentRole = agent.role ?? "general";
     context.heartbeatRoleProfile = policy.roleProfile;
     context.onIdleBehavior = policy.onIdleBehavior;
+
+    // Structured wake context enrichment: detail, human-readable issue info, triggeredBy
+    const wakeReason = readNonEmptyString(context.wakeReason as string | undefined);
+    const wakeIssueId = readNonEmptyString(context.issueId as string | undefined);
+    if (wakeIssueId) {
+      const wakeIssueRow = agentAssignments.find((a) => a.id === wakeIssueId);
+      if (wakeIssueRow) {
+        context.wakeIssueIdentifier = wakeIssueRow.identifier ?? null;
+        context.wakeIssueTitle = wakeIssueRow.title ?? null;
+      }
+    }
+    // Derive detail sub-reason from wake reason
+    if (wakeReason === "issue_assigned" || wakeReason === "assignment") {
+      context.wakeDetail = "new_assignment";
+    } else if (wakeReason === "issue_reassigned") {
+      context.wakeDetail = "reassignment";
+    } else if (wakeReason === "issue_priority_changed") {
+      context.wakeDetail = "priority_change";
+    } else if (wakeReason === "issue_status_changed" || wakeReason === "issue_reopened_via_comment") {
+      context.wakeDetail = "status_change";
+    } else if (wakeReason === "issue_unblocked") {
+      context.wakeDetail = "unblocked";
+    } else if (wakeReason === "issue_comment_mentioned" || wakeReason === "issue_commented") {
+      context.wakeDetail = "comment";
+    }
+    // triggeredBy: who caused this wakeup
+    const actorType = readNonEmptyString(context.requestedByActorType as string | undefined);
+    const actorId = readNonEmptyString(context.requestedByActorId as string | undefined);
+    if (actorType === "user") {
+      context.wakeTriggeredBy = "board";
+    } else if (actorType === "agent" && actorId) {
+      context.wakeTriggeredBy = `agent:${actorId}`;
+    } else {
+      context.wakeTriggeredBy = "system";
+    }
     if (policy.idleCustomPrompt) {
       context.idleCustomPrompt = policy.idleCustomPrompt;
     }
@@ -1166,8 +1226,149 @@ export function heartbeatService(db: Db) {
       }
     }
 
-    // Pre-fetch triggering task details and inject as PAPERCLIP_TASK_JSON.
-    // Eliminates 2 API calls per task-triggered heartbeat across all agents.
+    // Consume pending notifications (batched comment @-mentions, etc.)
+    // and inject them into the context so the agent sees them at heartbeat start.
+    try {
+      const pendingRows = await db
+        .select({
+          id: agentPendingNotifications.id,
+          type: agentPendingNotifications.type,
+          issueId: agentPendingNotifications.issueId,
+          commentId: agentPendingNotifications.commentId,
+          payload: agentPendingNotifications.payload,
+          createdAt: agentPendingNotifications.createdAt,
+        })
+        .from(agentPendingNotifications)
+        .where(
+          and(
+            eq(agentPendingNotifications.agentId, agent.id),
+            isNull(agentPendingNotifications.consumedAt),
+          ),
+        )
+        .orderBy(asc(agentPendingNotifications.createdAt))
+        .limit(50);
+
+      if (pendingRows.length > 0) {
+        context.pendingNotifications = JSON.stringify(
+          pendingRows.map((n) => ({
+            type: n.type,
+            issueId: n.issueId,
+            commentId: n.commentId ?? null,
+            excerpt: (n.payload as Record<string, unknown>)?.excerpt ?? null,
+            createdAt: n.createdAt,
+          })),
+        );
+        // Mark as consumed
+        const notifIds = pendingRows.map((n) => n.id);
+        await db
+          .update(agentPendingNotifications)
+          .set({ consumedAt: new Date() })
+          .where(inArray(agentPendingNotifications.id, notifIds));
+      }
+    } catch (err) {
+      logger.warn({ err, agentId: agent.id }, "failed to consume pending notifications; continuing");
+    }
+
+    // Tier 1: Compact email summary — agents call GET /api/agents/{id}/emails for full details
+    try {
+      const EXCERPT_LEN = 200;
+      const unreadEmails = await db
+        .select({
+          id: agentEmails.id,
+          from: agentEmails.from,
+          subject: agentEmails.subject,
+          bodyText: agentEmails.bodyText,
+          receivedAt: agentEmails.receivedAt,
+        })
+        .from(agentEmails)
+        .where(
+          and(
+            eq(agentEmails.agentId, agent.id),
+            isNull(agentEmails.readAt),
+          ),
+        )
+        .orderBy(desc(agentEmails.receivedAt))
+        .limit(5);
+
+      if (unreadEmails.length > 0) {
+        // Count total unread (may be more than 5)
+        const totalUnread = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(agentEmails)
+          .where(and(eq(agentEmails.agentId, agent.id), isNull(agentEmails.readAt)))
+          .then((rows) => Number(rows[0]?.count ?? 0));
+
+        context.recentEmails = JSON.stringify(
+          unreadEmails.map((e) => ({
+            id: e.id,
+            from: e.from,
+            subject: e.subject,
+            excerpt: e.bodyText.slice(0, EXCERPT_LEN) + (e.bodyText.length > EXCERPT_LEN ? "..." : ""),
+            receivedAt: e.receivedAt,
+          })),
+        );
+        context.emailCount = JSON.stringify({ unread: totalUnread });
+      }
+    } catch (err) {
+      logger.warn({ err, agentId: agent.id }, "failed to inject email context; continuing");
+    }
+
+    // Tier 1: Compact Matrix message summary — agents call GET /api/agents/{id}/matrix-messages for full details
+    try {
+      const unreadMatrix = await db
+        .select({
+          id: agentMatrixMessages.id,
+          roomName: agentMatrixMessages.roomName,
+          roomType: agentMatrixMessages.roomType,
+          senderDisplayName: agentMatrixMessages.senderDisplayName,
+          body: agentMatrixMessages.body,
+          receivedAt: agentMatrixMessages.receivedAt,
+        })
+        .from(agentMatrixMessages)
+        .where(
+          and(
+            eq(agentMatrixMessages.agentId, agent.id),
+            isNull(agentMatrixMessages.readAt),
+          ),
+        )
+        .orderBy(desc(agentMatrixMessages.receivedAt))
+        .limit(10);
+
+      if (unreadMatrix.length > 0) {
+        // Group by room for compact display
+        const byRoom = new Map<string, { roomType: string; messages: { from: string; excerpt: string; receivedAt: Date }[] }>();
+        for (const m of unreadMatrix) {
+          if (!byRoom.has(m.roomName)) {
+            byRoom.set(m.roomName, { roomType: m.roomType, messages: [] });
+          }
+          byRoom.get(m.roomName)!.messages.push({
+            from: m.senderDisplayName,
+            excerpt: m.body.slice(0, 150) + (m.body.length > 150 ? "..." : ""),
+            receivedAt: m.receivedAt,
+          });
+        }
+
+        const totalUnread = await db
+          .select({ count: sql<number>`count(*)` })
+          .from(agentMatrixMessages)
+          .where(and(eq(agentMatrixMessages.agentId, agent.id), isNull(agentMatrixMessages.readAt)))
+          .then((rows) => Number(rows[0]?.count ?? 0));
+
+        context.recentMatrixMessages = JSON.stringify(
+          Array.from(byRoom.entries()).map(([roomName, data]) => ({
+            roomName,
+            roomType: data.roomType,
+            messages: data.messages,
+          })),
+        );
+        context.matrixCount = JSON.stringify({ unread: totalUnread, rooms: byRoom.size });
+      }
+    } catch (err) {
+      logger.warn({ err, agentId: agent.id }, "failed to inject matrix context; continuing");
+    }
+
+    // Tier 2: Compact task summary instead of full task JSON blob.
+    // Full task details (description, comments, project) available via GET /api/issues/{id}.
     const wakeTaskIdForFetch =
       readNonEmptyString(context.taskId as string | undefined) ??
       readNonEmptyString(context.issueId as string | undefined);
@@ -1189,118 +1390,108 @@ export function heartbeatService(db: Db) {
           .then((rows) => rows[0] ?? null);
 
         if (taskRow) {
-          // Walk parent chain for ancestors (max 5 levels, guarded against cycles)
-          const ancestors: Array<{ id: string; identifier: string | null; title: string; status: string; priority: string }> = [];
+          // Count comments instead of fetching full bodies
+          const commentCountResult = await db
+            .select({ count: sql<number>`count(*)` })
+            .from(issueComments)
+            .where(and(eq(issueComments.issueId, wakeTaskIdForFetch), eq(issueComments.companyId, agent.companyId)))
+            .then((rows) => rows[0]?.count ?? 0);
+
+          // Fetch only the most recent comment for excerpt
+          const lastComment = await db
+            .select({ body: issueComments.body, authorAgentId: issueComments.authorAgentId, authorUserId: issueComments.authorUserId })
+            .from(issueComments)
+            .where(and(eq(issueComments.issueId, wakeTaskIdForFetch), eq(issueComments.companyId, agent.companyId)))
+            .orderBy(desc(issueComments.createdAt))
+            .limit(1)
+            .then((rows) => rows[0] ?? null);
+
+          // Walk parent chain for compact ancestor breadcrumb (identifier + title only)
+          const ancestorBreadcrumb: string[] = [];
           const visited = new Set<string>([taskRow.id]);
           let currentParentId = taskRow.parentId ?? null;
-          while (currentParentId && !visited.has(currentParentId) && ancestors.length < 5) {
+          while (currentParentId && !visited.has(currentParentId) && ancestorBreadcrumb.length < 3) {
             visited.add(currentParentId);
             const parent = await db
-              .select({ id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status, priority: issues.priority, parentId: issues.parentId })
+              .select({ id: issues.id, identifier: issues.identifier, title: issues.title, parentId: issues.parentId })
               .from(issues)
               .where(eq(issues.id, currentParentId))
               .then((rows) => rows[0] ?? null);
             if (!parent) break;
-            ancestors.push({ id: parent.id, identifier: parent.identifier ?? null, title: parent.title, status: parent.status, priority: parent.priority });
+            ancestorBreadcrumb.push(`${parent.identifier ?? "?"}: ${parent.title}`);
             currentParentId = parent.parentId ?? null;
           }
 
-          // Fetch last 10 comments
-          const recentCommentRows = await db
-            .select({ id: issueComments.id, body: issueComments.body, authorAgentId: issueComments.authorAgentId, authorUserId: issueComments.authorUserId, createdAt: issueComments.createdAt })
-            .from(issueComments)
-            .where(and(eq(issueComments.issueId, wakeTaskIdForFetch), eq(issueComments.companyId, agent.companyId)))
-            .orderBy(desc(issueComments.createdAt))
-            .limit(10);
+          // Fetch project name (not full project with workspaces)
+          let projectName: string | null = null;
+          if (taskRow.projectId) {
+            projectName = await db
+              .select({ name: projects.name })
+              .from(projects)
+              .where(eq(projects.id, taskRow.projectId))
+              .then((rows) => rows[0]?.name ?? null);
+          }
 
-          // Fetch project with workspaces so agents know their workspace context
-          const projectsSvc = projectService(db);
-          const project = taskRow.projectId
-            ? await projectsSvc.getById(taskRow.projectId)
-            : null;
-
-          const TASK_DESC_MAX = 4000;
-          const COMMENT_BODY_MAX = 1000;
+          const EXCERPT_MAX = 150;
           const SECRET_PATTERN = /(?:api[_-]?key|password|secret|token|auth)[^\s]*\s*[:=]\s*\S+/gi;
           const sanitize = (s: string) => s.replace(SECRET_PATTERN, "[redacted]");
 
-          const taskJson = {
-            id: taskRow.id,
+          const lastCommentExcerpt = lastComment
+            ? sanitize(lastComment.body.slice(0, EXCERPT_MAX)) + (lastComment.body.length > EXCERPT_MAX ? "..." : "")
+            : null;
+          const lastCommentAuthor = lastComment
+            ? (lastComment.authorUserId ? "board" : lastComment.authorAgentId ? `agent:${lastComment.authorAgentId}` : "unknown")
+            : null;
+
+          // Compact Tier 2 task summary — agents call GET /api/issues/{id} for full details
+          const taskSummary = {
             identifier: taskRow.identifier ?? null,
             title: taskRow.title,
-            description: taskRow.description
-              ? sanitize(taskRow.description.slice(0, TASK_DESC_MAX))
-              : null,
             status: taskRow.status,
             priority: taskRow.priority,
-            projectId: taskRow.projectId ?? null,
-            project: project ?? null,
-            ancestors,
-            recentComments: recentCommentRows.map((c) => ({
-              id: c.id,
-              body: sanitize(c.body.slice(0, COMMENT_BODY_MAX)),
-              authorAgentId: c.authorAgentId ?? null,
-              authorUserId: c.authorUserId ?? null,
-              createdAt: c.createdAt,
-            })),
+            project: projectName,
+            parentChain: ancestorBreadcrumb.length > 0 ? ancestorBreadcrumb.join(" > ") : null,
+            commentCount: Number(commentCountResult),
+            lastCommentExcerpt,
+            lastCommentAuthor,
           };
-          context.taskJson = JSON.stringify(taskJson);
+          context.taskJson = JSON.stringify(taskSummary);
         }
       } catch (err) {
-        logger.warn({ err, taskId: wakeTaskIdForFetch }, "failed to pre-fetch task JSON; continuing without it");
+        logger.warn({ err, taskId: wakeTaskIdForFetch }, "failed to pre-fetch task summary; continuing without it");
         context.taskJson = null;
       }
     }
 
-    // Inject role-specific context: PM gets team member status, CEO gets company dashboard.
+    // Tier 2: Compact team summary for PM/CEO (one-line instead of full JSON array)
     if (policy.roleProfile === "pm" || policy.roleProfile === "ceo") {
       try {
-        // Fetch agents that report to this agent (direct reports)
         const teamMembers = await db
           .select({
-            id: agents.id,
             name: agents.name,
-            role: agents.role,
-            title: agents.title,
             status: agents.status,
           })
           .from(agents)
           .where(and(eq(agents.companyId, agent.companyId), eq(agents.reportsTo, agent.id)));
         if (teamMembers.length > 0) {
-          context.teamStatusJson = JSON.stringify(teamMembers);
+          const teamStatusCounts: Record<string, number> = {};
+          const blockedNames: string[] = [];
+          for (const m of teamMembers) {
+            const s = m.status ?? "unknown";
+            teamStatusCounts[s] = (teamStatusCounts[s] ?? 0) + 1;
+            if (s === "blocked") blockedNames.push(m.name ?? "?");
+          }
+          const teamParts = Object.entries(teamStatusCounts).map(([s, c]) => `${c} ${s}`);
+          const blockedDetail = blockedNames.length > 0 ? ` (blocked: ${blockedNames.join(", ")})` : "";
+          context.teamSummary = `${teamMembers.length} reports: ${teamParts.join(", ")}${blockedDetail}`;
         }
       } catch (err) {
-        logger.warn({ err, agentId: agent.id }, "failed to pre-fetch team status; continuing without it");
+        logger.warn({ err, agentId: agent.id }, "failed to build team summary; continuing without it");
       }
     }
 
-    if (policy.roleProfile === "ceo") {
-      try {
-        const agentRows = await db
-          .select({ status: agents.status, count: sql<number>`count(*)` })
-          .from(agents)
-          .where(eq(agents.companyId, agent.companyId))
-          .groupBy(agents.status);
-        const taskRows = await db
-          .select({ status: issues.status, count: sql<number>`count(*)` })
-          .from(issues)
-          .where(eq(issues.companyId, agent.companyId))
-          .groupBy(issues.status);
-        const agentCounts: Record<string, number> = {};
-        for (const row of agentRows) {
-          const s = row.status as string;
-          agentCounts[s] = (agentCounts[s] ?? 0) + Number(row.count);
-        }
-        const taskCounts: Record<string, number> = {};
-        for (const row of taskRows) {
-          const s = row.status as string;
-          taskCounts[s] = (taskCounts[s] ?? 0) + Number(row.count);
-        }
-        context.dashboardJson = JSON.stringify({ agents: agentCounts, tasks: taskCounts });
-      } catch (err) {
-        logger.warn({ err, agentId: agent.id }, "failed to pre-fetch dashboard summary; continuing without it");
-      }
-    }
+    // Tier 3: Dashboard data removed from context injection — available via API.
+    // CEO/PM agents can call reporting endpoints for full dashboard data.
 
     // Lightweight pre-check: skip the heartbeat entirely if there is no work
     // and no event-based wake trigger. This avoids spinning up an expensive
@@ -2523,6 +2714,40 @@ export function heartbeatService(db: Db) {
         const baseline = new Date(agent.lastHeartbeatAt ?? agent.createdAt).getTime();
         const elapsedMs = now.getTime() - baseline;
         if (elapsedMs < policy.intervalSec * 1000) continue;
+
+        // Empty-queue gating: skip timer wakeup if agent has no work and no
+        // idle behavior that warrants running.  PM/CEO roles and agents with
+        // non-exit idle behavior are exempt (they may have coordination work).
+        const hasIdleBehavior = policy.onIdleBehavior !== "exit";
+        const isLeadershipRole = policy.roleProfile === "pm" || policy.roleProfile === "ceo";
+        if (!hasIdleBehavior && !isLeadershipRole) {
+          const [assignmentCount] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(issues)
+            .where(
+              and(
+                eq(issues.assigneeAgentId, agent.id),
+                inArray(issues.status, ["todo", "in_progress", "blocked"]),
+              ),
+            );
+          const [pendingWakeCount] = await db
+            .select({ count: sql<number>`count(*)::int` })
+            .from(agentWakeupRequests)
+            .where(
+              and(
+                eq(agentWakeupRequests.agentId, agent.id),
+                eq(agentWakeupRequests.status, "queued"),
+              ),
+            );
+          if ((assignmentCount?.count ?? 0) === 0 && (pendingWakeCount?.count ?? 0) === 0) {
+            logger.info(
+              { agentId: agent.id, companyId: agent.companyId },
+              "timer_skipped_empty_queue: no assignments or pending wakeups",
+            );
+            skipped += 1;
+            continue;
+          }
+        }
 
         const run = await enqueueWakeup(agent.id, {
           source: "timer",

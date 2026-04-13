@@ -131,7 +131,10 @@ export async function discoverPiModels(input: {
     throw new Error(detail ? `\`pi --list-models\` failed: ${detail}` : "`pi --list-models` failed.");
   }
 
-  return sortModels(dedupeModels(parseModelsOutput(result.stdout)));
+  // Pi may output models to stdout or stderr depending on version
+  const modelsFromStdout = parseModelsOutput(result.stdout);
+  const models = modelsFromStdout.length > 0 ? modelsFromStdout : parseModelsOutput(result.stderr);
+  return sortModels(dedupeModels(models));
 }
 
 function normalizeEnv(input: unknown): Record<string, string> {

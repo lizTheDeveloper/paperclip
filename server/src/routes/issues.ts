@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import type { Db } from "@paperclipai/db";
+import { agentPendingNotifications } from "@paperclipai/db";
 import {
   addIssueCommentSchema,
   createIssueAttachmentMetadataSchema,
@@ -608,6 +609,59 @@ export function issueRoutes(db: Db, storage: StorageService) {
         });
       }
 
+      // Upward flow: wake the creator/parent when work reaches a terminal or review state
+      const upwardStatuses = ["done", "in_review", "blocked"];
+      const statusChanged = req.body.status !== undefined && existing.status !== issue.status;
+      if (statusChanged && upwardStatuses.includes(issue.status)) {
+        const reasonMap: Record<string, string> = {
+          done: "issue_completed",
+          in_review: "issue_ready_for_review",
+          blocked: "issue_blocked",
+        };
+        const wakeReason = reasonMap[issue.status] ?? "issue_status_changed";
+
+        // Wake the agent that created this issue (the delegator)
+        if (
+          existing.createdByAgentId &&
+          existing.createdByAgentId !== (actor.actorType === "agent" ? actor.actorId : null) &&
+          !wakeups.has(existing.createdByAgentId)
+        ) {
+          wakeups.set(existing.createdByAgentId, {
+            source: "automation",
+            triggerDetail: "system",
+            reason: wakeReason,
+            payload: { issueId: issue.id, mutation: "update", previousStatus: existing.status },
+            requestedByActorType: actor.actorType,
+            requestedByActorId: actor.actorId,
+            contextSnapshot: { issueId: issue.id, wakeReason, source: "issue.upward_flow" },
+          });
+        }
+
+        // Wake the parent issue's assignee (work bubbles up the hierarchy)
+        if (existing.parentId) {
+          try {
+            const parent = await svc.getById(existing.parentId);
+            if (
+              parent?.assigneeAgentId &&
+              parent.assigneeAgentId !== (actor.actorType === "agent" ? actor.actorId : null) &&
+              !wakeups.has(parent.assigneeAgentId)
+            ) {
+              wakeups.set(parent.assigneeAgentId, {
+                source: "automation",
+                triggerDetail: "system",
+                reason: wakeReason,
+                payload: { issueId: issue.id, parentIssueId: parent.id, mutation: "update", previousStatus: existing.status },
+                requestedByActorType: actor.actorType,
+                requestedByActorId: actor.actorId,
+                contextSnapshot: { issueId: issue.id, taskId: parent.id, wakeReason, source: "issue.upward_flow" },
+              });
+            }
+          } catch (err) {
+            logger.warn({ err, issueId: issue.id, parentId: existing.parentId }, "failed to fetch parent issue for upward wake");
+          }
+        }
+      }
+
       if (commentBody && comment) {
         let mentionedIds: string[] = [];
         try {
@@ -990,25 +1044,49 @@ export function issueRoutes(db: Db, storage: StorageService) {
         logger.warn({ err, issueId: id }, "failed to resolve @-mentions");
       }
 
+      // Write pending notifications for @-mentioned agents instead of
+      // triggering immediate wakeups.  These are consumed at the start of
+      // the agent's next heartbeat (see heartbeat context enrichment).
+      // Urgent override: critical-priority issues still get immediate wakeups.
+      const isUrgent = currentIssue.priority === "critical" || req.body.body?.includes("!urgent");
       for (const mentionedId of mentionedIds) {
         if (wakeups.has(mentionedId)) continue;
         if (actorIsAgent && actor.actorId === mentionedId) continue;
-        wakeups.set(mentionedId, {
-          source: "automation",
-          triggerDetail: "system",
-          reason: "issue_comment_mentioned",
-          payload: { issueId: id, commentId: comment.id },
-          requestedByActorType: actor.actorType,
-          requestedByActorId: actor.actorId,
-          contextSnapshot: {
+        // Always write the notification record (consumed at heartbeat start)
+        db.insert(agentPendingNotifications)
+          .values({
+            agentId: mentionedId,
+            companyId: issue.companyId,
+            type: "comment_mention",
             issueId: id,
-            taskId: id,
             commentId: comment.id,
-            wakeCommentId: comment.id,
-            wakeReason: "issue_comment_mentioned",
-            source: "comment.mention",
-          },
-        });
+            payload: {
+              excerpt: req.body.body?.slice(0, 200) ?? "",
+              authorAgentId: actorIsAgent ? actor.actorId : null,
+              authorUserId: !actorIsAgent ? actor.actorId : null,
+            },
+          })
+          .catch((err) => logger.warn({ err, issueId: id, agentId: mentionedId }, "failed to write pending notification"));
+
+        // Urgent: also trigger immediate wakeup
+        if (isUrgent) {
+          wakeups.set(mentionedId, {
+            source: "automation",
+            triggerDetail: "system",
+            reason: "issue_comment_mentioned",
+            payload: { issueId: id, commentId: comment.id },
+            requestedByActorType: actor.actorType,
+            requestedByActorId: actor.actorId,
+            contextSnapshot: {
+              issueId: id,
+              taskId: id,
+              commentId: comment.id,
+              wakeCommentId: comment.id,
+              wakeReason: "issue_comment_mentioned",
+              source: "comment.mention",
+            },
+          });
+        }
       }
 
       for (const [agentId, wakeup] of wakeups.entries()) {

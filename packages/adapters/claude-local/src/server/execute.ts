@@ -42,52 +42,89 @@ async function resolvePaperclipSkillsDir(): Promise<string | null> {
 }
 
 /**
- * Map an agent role to its role-specific paperclip skill name.
- * Returns null if the role doesn't have a dedicated skill (fallback to monolithic "paperclip").
+ * Set of all legacy full-protocol paperclip skills that are replaced by the
+ * minimal bootstrap skill. These are excluded from skill symlinking.
  */
-function paperclipSkillForRole(role: string | null | undefined): string | null {
-  if (!role) return null;
-  switch (role) {
-    case "ceo": return "paperclip-ceo";
-    case "pm":
-    case "manager": return "paperclip-pm";
-    default: return "paperclip-ic";
-  }
-}
-
-const PAPERCLIP_ROLE_SKILLS = new Set(["paperclip-ic", "paperclip-pm", "paperclip-ceo"]);
+const PAPERCLIP_PROTOCOL_SKILLS = new Set(["paperclip", "paperclip-ic", "paperclip-pm", "paperclip-ceo"]);
 
 /**
- * Create a tmpdir with `.claude/skills/` containing symlinks to skills from
- * the repo's `skills/` directory, so `--add-dir` makes Claude Code discover
- * them as proper registered skills.
- *
- * When `agentRole` is provided, only the matching role-specific paperclip skill
- * is included (omitting the monolithic `paperclip` skill and other role variants).
- * Agents with an unknown role fall back to the monolithic `paperclip` skill.
+ * Generate the minimal bootstrap skill content (~150 tokens) that teaches
+ * agents how to discover the Paperclip API. Replaces the full protocol skills
+ * (paperclip-ceo: ~200 lines, paperclip-ic: similar) that were 2-4K tokens.
  */
-async function buildSkillsDir(agentRole?: string | null): Promise<string> {
+function buildBootstrapSkillContent(): string {
+  return `---
+name: paperclip
+description: Paperclip agent bootstrap — use when starting any Paperclip heartbeat
+---
+
+# Paperclip Agent
+
+You are a Paperclip agent. Your identity and assignments are available via the Paperclip API.
+
+## Quick Start
+- API base: $PAPERCLIP_API_URL (auth: Bearer $PAPERCLIP_API_KEY)
+- Discovery: GET /api — lists all endpoints with descriptions
+- Full docs: GET /api/docs — complete endpoint documentation
+- Your identity: GET /api/agents/me
+- Your tasks: check wake context env vars first, then call assignments endpoint
+
+## Wake Context
+Environment variables tell you why you woke up:
+- PAPERCLIP_TASK_ID: prioritized task (if set)
+- PAPERCLIP_WAKE_REASON: why you were woken
+- PAPERCLIP_RUN_ID: include as X-Paperclip-Run-Id header on all write requests
+- PAPERCLIP_ASSIGNMENTS_SUMMARY: one-line summary of your task queue
+- PAPERCLIP_TASK_JSON: compact summary of your prioritized task
+
+## Rules
+- Always checkout before working on a task (POST /api/issues/{id}/checkout)
+- Always comment on in_progress work before exiting
+- Never retry a 409 (someone else has the task)
+- Never look for unassigned work
+- Always set parentId on subtasks
+
+## Context
+- Specs live in the repo (docs/specs/), not in tickets
+- If you receive clarification in a comment, update the spec file and note it in the ticket
+- Read spec files for requirements; read tickets for status and coordination only
+`;
+}
+
+/**
+ * Create a tmpdir with \`.claude/skills/\` containing:
+ * 1. A generated minimal bootstrap skill (replaces full protocol skills)
+ * 2. Symlinks to all other skills from the repo's \`skills/\` directory
+ *
+ * Claude Code discovers these via \`--add-dir\`.
+ */
+async function buildSkillsDir(_agentRole?: string | null): Promise<string> {
   const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "paperclip-skills-"));
   const target = path.join(tmp, ".claude", "skills");
   await fs.mkdir(target, { recursive: true });
+
+  // Write the minimal bootstrap skill
+  const bootstrapDir = path.join(target, "paperclip");
+  await fs.mkdir(bootstrapDir, { recursive: true });
+  await fs.writeFile(path.join(bootstrapDir, "SKILL.md"), buildBootstrapSkillContent(), "utf-8");
+
+  // Symlink all non-protocol skills from the skills directory
   const skillsDir = await resolvePaperclipSkillsDir();
-  if (!skillsDir) return tmp;
-  const entries = await fs.readdir(skillsDir, { withFileTypes: true });
-  const roleSkill = paperclipSkillForRole(agentRole);
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const name = entry.name;
-    // Filter paperclip skills: include only the role-appropriate one.
-    if (roleSkill !== null) {
-      if (name === "paperclip") continue; // skip monolithic skill when role-specific exists
-      if (PAPERCLIP_ROLE_SKILLS.has(name) && name !== roleSkill) continue; // skip other role variants
-    } else {
-      if (PAPERCLIP_ROLE_SKILLS.has(name)) continue; // skip role skills when using monolithic fallback
+  if (skillsDir) {
+    const entries = await fs.readdir(skillsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      if (entry.isSymbolicLink()) {
+        const resolved = await fs.stat(path.join(skillsDir, entry.name)).catch(() => null);
+        if (!resolved?.isDirectory()) continue;
+      }
+      // Skip all legacy protocol skills — replaced by bootstrap
+      if (PAPERCLIP_PROTOCOL_SKILLS.has(entry.name)) continue;
+      await fs.symlink(
+        path.join(skillsDir, entry.name),
+        path.join(target, entry.name),
+      );
     }
-    await fs.symlink(
-      path.join(skillsDir, entry.name),
-      path.join(target, entry.name),
-    );
   }
   return tmp;
 }
@@ -226,6 +263,9 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   if (typeof context.assignmentsJson === "string" && context.assignmentsJson.length > 0) {
     env.PAPERCLIP_ASSIGNMENTS_JSON = context.assignmentsJson;
   }
+  if (typeof context.assignmentsSummary === "string" && context.assignmentsSummary.length > 0) {
+    env.PAPERCLIP_ASSIGNMENTS_SUMMARY = context.assignmentsSummary;
+  }
   if (typeof context.agentRole === "string" && context.agentRole.length > 0) {
     env.PAPERCLIP_AGENT_ROLE = context.agentRole;
   }
@@ -235,12 +275,11 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   if (typeof context.heartbeatRoleProfile === "string" && context.heartbeatRoleProfile.length > 0) {
     env.PAPERCLIP_ROLE_PROFILE = context.heartbeatRoleProfile;
   }
-  if (typeof context.teamStatusJson === "string" && context.teamStatusJson.length > 0) {
-    env.PAPERCLIP_TEAM_STATUS_JSON = context.teamStatusJson;
+  if (typeof context.teamSummary === "string" && context.teamSummary.length > 0) {
+    env.PAPERCLIP_TEAM_SUMMARY = context.teamSummary;
   }
-  if (typeof context.dashboardJson === "string" && context.dashboardJson.length > 0) {
-    env.PAPERCLIP_DASHBOARD_JSON = context.dashboardJson;
-  }
+  // Legacy env vars removed: PAPERCLIP_TEAM_STATUS_JSON, PAPERCLIP_DASHBOARD_JSON
+  // Full team/dashboard data available via API endpoints
   if (typeof context.onIdleBehavior === "string" && context.onIdleBehavior.length > 0) {
     env.PAPERCLIP_ON_IDLE_BEHAVIOR = context.onIdleBehavior;
   }
@@ -418,7 +457,17 @@ export async function execute(ctx: AdapterExecutionContext): Promise<AdapterExec
             : null;
       if (!parsed || typeof parsed !== "object") return { title: "", description: "" };
       const title = typeof parsed.title === "string" ? parsed.title : "";
-      const desc = typeof parsed.description === "string" ? parsed.description : "";
+      // Compact task summary: description field no longer injected (Tier 3, API-only).
+      // Build a brief description from available summary fields.
+      const parts: string[] = [];
+      if (parsed.identifier) parts.push(`[${parsed.identifier}]`);
+      if (parsed.status) parts.push(`Status: ${parsed.status}`);
+      if (parsed.priority) parts.push(`Priority: ${parsed.priority}`);
+      if (parsed.parentChain) parts.push(`Parent: ${parsed.parentChain}`);
+      if (parsed.commentCount > 0) parts.push(`${parsed.commentCount} comments`);
+      if (parsed.lastCommentExcerpt) parts.push(`Last: ${parsed.lastCommentExcerpt}`);
+      // Backwards compat: if old full format had description, use it
+      const desc = typeof parsed.description === "string" ? parsed.description : parts.join(" | ");
       return {
         title,
         description: desc.length > 2000 ? desc.slice(0, 2000) + "…" : desc,

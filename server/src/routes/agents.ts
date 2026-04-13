@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Db } from "@paperclipai/db";
-import { agents as agentsTable, and, companies, desc, eq, heartbeatRuns, inArray, not, sql } from "@paperclipai/db";
+import { agentEmails, agentMatrixMessages, agents as agentsTable, and, companies, desc, eq, heartbeatRuns, inArray, isNull, not, sql } from "@paperclipai/db";
 import {
   createAgentKeySchema,
   createAgentHireSchema,
@@ -35,6 +35,7 @@ import {
   DEFAULT_CODEX_LOCAL_BYPASS_APPROVALS_AND_SANDBOX,
   DEFAULT_CODEX_LOCAL_MODEL,
 } from "@paperclipai/adapter-codex-local";
+import { DEFAULT_CLAUDE_LOCAL_MODEL } from "@paperclipai/adapter-claude-local";
 import { DEFAULT_CURSOR_LOCAL_MODEL } from "@paperclipai/adapter-cursor-local";
 import { ensureOpenCodeModelConfiguredAndAvailable } from "@paperclipai/adapter-opencode-local/server";
 
@@ -232,6 +233,9 @@ export function agentRoutes(db: Db) {
       return ensureGatewayDeviceKey(adapterType, next);
     }
     // OpenCode requires explicit model selection — no default
+    if (adapterType === "claude_local" && !asNonEmptyString(next.model)) {
+      next.model = DEFAULT_CLAUDE_LOCAL_MODEL;
+    }
     if (adapterType === "cursor" && !asNonEmptyString(next.model)) {
       next.model = DEFAULT_CURSOR_LOCAL_MODEL;
     }
@@ -1483,6 +1487,185 @@ export function agentRoutes(db: Db) {
       agentName: agent.name,
       adapterType: agent.adapterType,
     });
+  });
+
+  // ── Agent Emails ───────────────────────────────────────────────────
+
+  // Ingest endpoint: external scripts POST emails here
+  router.post("/agents/:id/emails/ingest", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+    assertCompanyAccess(req, agent.companyId);
+
+    const { from, subject, bodyText, receivedAt } = req.body as {
+      from?: string;
+      subject?: string;
+      bodyText?: string;
+      receivedAt?: string;
+    };
+    if (!from) { res.status(400).json({ error: "from is required" }); return; }
+
+    const row = await db
+      .insert(agentEmails)
+      .values({
+        agentId: agent.id,
+        companyId: agent.companyId,
+        from,
+        subject: subject ?? "",
+        bodyText: (bodyText ?? "").slice(0, 2000),
+        receivedAt: receivedAt ? new Date(receivedAt) : new Date(),
+      })
+      .returning();
+
+    res.status(201).json(row[0]);
+  });
+
+  // List emails for an agent (supports ?unread=true&limit=N)
+  router.get("/agents/:id/emails", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+    assertCompanyAccess(req, agent.companyId);
+
+    const unreadOnly = req.query.unread === "true";
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+
+    const conditions = [eq(agentEmails.agentId, agent.id)];
+    if (unreadOnly) conditions.push(isNull(agentEmails.readAt));
+
+    const rows = await db
+      .select()
+      .from(agentEmails)
+      .where(and(...conditions))
+      .orderBy(desc(agentEmails.receivedAt))
+      .limit(limit);
+
+    res.json(rows);
+  });
+
+  // Get a single email
+  router.get("/agents/:id/emails/:emailId", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+    assertCompanyAccess(req, agent.companyId);
+
+    const emailId = req.params.emailId as string;
+    const row = await db
+      .select()
+      .from(agentEmails)
+      .where(and(eq(agentEmails.id, emailId), eq(agentEmails.agentId, agent.id)))
+      .then((rows) => rows[0] ?? null);
+
+    if (!row) { res.status(404).json({ error: "Email not found" }); return; }
+    res.json(row);
+  });
+
+  // Mark email as read
+  router.post("/agents/:id/emails/:emailId/mark-read", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+    assertCompanyAccess(req, agent.companyId);
+
+    const emailId = req.params.emailId as string;
+    const updated = await db
+      .update(agentEmails)
+      .set({ readAt: new Date() })
+      .where(and(eq(agentEmails.id, emailId), eq(agentEmails.agentId, agent.id), isNull(agentEmails.readAt)))
+      .returning();
+
+    if (updated.length === 0) { res.status(404).json({ error: "Email not found or already read" }); return; }
+    res.json(updated[0]);
+  });
+
+  // ── Agent Matrix Messages ──────────────────────────────────────────
+
+  // Ingest endpoint: Matrix bridge script POSTs messages here
+  router.post("/agents/:id/matrix-messages/ingest", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+    assertCompanyAccess(req, agent.companyId);
+
+    const { roomName, roomType, senderDisplayName, body, matrixEventId, receivedAt } = req.body as {
+      roomName?: string;
+      roomType?: string;
+      senderDisplayName?: string;
+      body?: string;
+      matrixEventId?: string;
+      receivedAt?: string;
+    };
+    if (!roomName || !senderDisplayName) {
+      res.status(400).json({ error: "roomName and senderDisplayName are required" });
+      return;
+    }
+
+    const row = await db
+      .insert(agentMatrixMessages)
+      .values({
+        agentId: agent.id,
+        companyId: agent.companyId,
+        roomName,
+        roomType: roomType ?? "channel",
+        senderDisplayName,
+        body: (body ?? "").slice(0, 1000),
+        matrixEventId: matrixEventId ?? null,
+        receivedAt: receivedAt ? new Date(receivedAt) : new Date(),
+      })
+      .returning();
+
+    res.status(201).json(row[0]);
+  });
+
+  // List Matrix messages (supports ?unread=true&limit=N)
+  router.get("/agents/:id/matrix-messages", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+    assertCompanyAccess(req, agent.companyId);
+
+    const unreadOnly = req.query.unread === "true";
+    const limit = Math.min(Number(req.query.limit) || 20, 100);
+
+    const conditions = [eq(agentMatrixMessages.agentId, agent.id)];
+    if (unreadOnly) conditions.push(isNull(agentMatrixMessages.readAt));
+
+    const rows = await db
+      .select()
+      .from(agentMatrixMessages)
+      .where(and(...conditions))
+      .orderBy(desc(agentMatrixMessages.receivedAt))
+      .limit(limit);
+
+    res.json(rows);
+  });
+
+  // Bulk mark Matrix messages as read
+  router.post("/agents/:id/matrix-messages/mark-read", async (req, res) => {
+    const id = req.params.id as string;
+    const agent = await svc.getById(id);
+    if (!agent) { res.status(404).json({ error: "Agent not found" }); return; }
+    assertCompanyAccess(req, agent.companyId);
+
+    const { messageIds } = req.body as { messageIds?: string[] };
+    if (!messageIds || !Array.isArray(messageIds) || messageIds.length === 0) {
+      res.status(400).json({ error: "messageIds array is required" });
+      return;
+    }
+
+    const updated = await db
+      .update(agentMatrixMessages)
+      .set({ readAt: new Date() })
+      .where(and(
+        inArray(agentMatrixMessages.id, messageIds),
+        eq(agentMatrixMessages.agentId, agent.id),
+        isNull(agentMatrixMessages.readAt),
+      ))
+      .returning();
+
+    res.json({ marked: updated.length });
   });
 
   return router;

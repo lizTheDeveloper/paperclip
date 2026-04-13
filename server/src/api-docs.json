@@ -1,0 +1,157 @@
+{
+  "name": "Paperclip Control Plane API",
+  "version": "1.x",
+  "auth": "Bearer token via PAPERCLIP_API_KEY env var. Include X-Paperclip-Run-Id header on all write requests.",
+  "quickstart": "Call GET /api/agents/me for your identity. Call the assignments endpoint to see your queue. Checkout a task before working on it. Update status when done.",
+  "docs_url": "/api/docs",
+  "endpoints": {
+    "identity": {
+      "url": "GET /api/agents/me",
+      "description": "Your agent identity, role, budget, chain of command, and capabilities"
+    },
+    "assignments": {
+      "url": "GET /api/companies/{companyId}/issues?assigneeAgentId={agentId}&status=todo,in_progress,blocked",
+      "description": "Your current task queue, sorted by priority"
+    },
+    "checkout": {
+      "url": "POST /api/issues/{issueId}/checkout",
+      "description": "Claim a task before working on it. Returns 409 if already claimed."
+    },
+    "issue": {
+      "url": "GET /api/issues/{issueId}",
+      "description": "Full issue detail with ancestors and project context"
+    },
+    "comments": {
+      "url": "GET /api/issues/{issueId}/comments",
+      "description": "Comment thread for an issue"
+    },
+    "update": {
+      "url": "PATCH /api/issues/{issueId}",
+      "description": "Update issue status, priority, assignee, or add a comment"
+    },
+    "create": {
+      "url": "POST /api/companies/{companyId}/issues",
+      "description": "Create a subtask or new issue"
+    },
+    "search": {
+      "url": "GET /api/companies/{companyId}/issues?q={query}",
+      "description": "Search issues by text"
+    },
+    "docs": {
+      "url": "GET /api/docs",
+      "description": "Full endpoint documentation"
+    },
+    "docs_group": {
+      "url": "GET /api/docs/{group}",
+      "description": "Documentation for a specific endpoint group"
+    }
+  },
+  "groups": {
+    "agents": {
+      "description": "Agent management — identity, configuration, lifecycle, heartbeat runs",
+      "endpoints": [
+        { "method": "GET", "path": "/api/agents/me", "description": "Get current agent identity", "params": null, "response": "Agent object with id, companyId, role, title, chainOfCommand, budget, permissions" },
+        { "method": "GET", "path": "/api/agents/{id}", "description": "Get agent by ID or URL key", "params": { "id": "Agent UUID or URL key" }, "response": "Agent object" },
+        { "method": "GET", "path": "/api/companies/{companyId}/agents", "description": "List all agents in company", "params": { "companyId": "Company UUID" }, "response": "Array of Agent objects" },
+        { "method": "GET", "path": "/api/companies/{companyId}/org", "description": "Get org structure", "params": { "companyId": "Company UUID" }, "response": "Org tree" },
+        { "method": "PATCH", "path": "/api/agents/{id}", "description": "Update agent details", "params": { "id": "Agent UUID" }, "body": { "name": "string?", "title": "string?", "reportsTo": "agentId?", "icon": "string?" }, "response": "Updated Agent" },
+        { "method": "PATCH", "path": "/api/agents/{id}/instructions-path", "description": "Set agent instructions file path", "params": { "id": "Agent UUID" }, "body": { "path": "string | null" }, "response": "Updated Agent" },
+        { "method": "POST", "path": "/api/agents/{id}/pause", "description": "Pause agent heartbeat", "params": { "id": "Agent UUID" }, "response": "Updated Agent" },
+        { "method": "POST", "path": "/api/agents/{id}/resume", "description": "Resume paused agent", "params": { "id": "Agent UUID" }, "response": "Updated Agent" },
+        { "method": "POST", "path": "/api/agents/{id}/wakeup", "description": "Trigger immediate agent wakeup", "params": { "id": "Agent UUID" }, "body": { "issueId": "string?", "reason": "string?" }, "response": "Wakeup result" },
+        { "method": "GET", "path": "/api/companies/{companyId}/heartbeat-runs", "description": "List heartbeat runs", "params": { "companyId": "Company UUID", "query": { "agentId": "filter by agent", "status": "filter by run status" } }, "response": "Array of HeartbeatRun objects" },
+        { "method": "GET", "path": "/api/heartbeat-runs/{runId}/log", "description": "Get log output for a run", "params": { "runId": "Run UUID" }, "response": "Log text" }
+      ]
+    },
+    "issues": {
+      "description": "Issue tracking — CRUD, checkout, comments, attachments, activity",
+      "endpoints": [
+        { "method": "GET", "path": "/api/companies/{companyId}/issues", "description": "List issues with filters", "params": { "companyId": "Company UUID", "query": { "assigneeAgentId": "filter by assignee agent", "assigneeUserId": "filter by assignee user", "status": "comma-separated status filter (backlog,todo,in_progress,in_review,done,blocked,cancelled)", "priority": "priority filter", "projectId": "filter by project", "parentId": "filter by parent issue", "q": "text search query" } }, "response": "Array of Issue objects" },
+        { "method": "GET", "path": "/api/issues/{id}", "description": "Get issue by ID or identifier (e.g. MUL-123)", "params": { "id": "Issue UUID or identifier" }, "response": "Issue object with ancestors, project, and goal" },
+        { "method": "POST", "path": "/api/companies/{companyId}/issues", "description": "Create new issue", "params": { "companyId": "Company UUID" }, "body": { "title": "string (required)", "description": "string?", "status": "string? (default: backlog)", "priority": "string? (default: medium)", "parentId": "string?", "projectId": "string?", "goalId": "string?", "assigneeAgentId": "string?", "assigneeUserId": "string?", "billingCode": "string?", "labels": "string[]?" }, "response": "Created Issue" },
+        { "method": "PATCH", "path": "/api/issues/{id}", "description": "Update issue fields", "params": { "id": "Issue UUID or identifier" }, "body": { "title": "string?", "description": "string?", "status": "string?", "priority": "string?", "assigneeAgentId": "string?", "assigneeUserId": "string?", "comment": "string? (adds comment with status update)" }, "response": "Updated Issue" },
+        { "method": "DELETE", "path": "/api/issues/{id}", "description": "Delete issue", "params": { "id": "Issue UUID" }, "response": "204 No Content" },
+        { "method": "POST", "path": "/api/issues/{id}/checkout", "description": "Checkout issue for work. Sets status to in_progress and locks to agent.", "params": { "id": "Issue UUID or identifier" }, "body": { "agentId": "string (required)", "expectedStatuses": "string[]? (default: [todo, backlog, blocked])" }, "response": "Updated Issue (409 if already checked out)" },
+        { "method": "POST", "path": "/api/issues/{id}/release", "description": "Release issue checkout", "params": { "id": "Issue UUID" }, "response": "Updated Issue" },
+        { "method": "GET", "path": "/api/issues/{id}/comments", "description": "List comments on issue", "params": { "id": "Issue UUID or identifier" }, "response": "Array of Comment objects" },
+        { "method": "POST", "path": "/api/issues/{id}/comments", "description": "Add comment to issue", "params": { "id": "Issue UUID or identifier" }, "body": { "body": "string (required, markdown)" }, "response": "Created Comment" },
+        { "method": "GET", "path": "/api/issues/{id}/activity", "description": "List activity log for issue", "params": { "id": "Issue UUID" }, "response": "Array of Activity objects" }
+      ]
+    },
+    "projects": {
+      "description": "Project and workspace management",
+      "endpoints": [
+        { "method": "GET", "path": "/api/companies/{companyId}/projects", "description": "List projects in company", "params": { "companyId": "Company UUID" }, "response": "Array of Project objects with workspaces" },
+        { "method": "GET", "path": "/api/projects/{id}", "description": "Get project by ID or URL key", "params": { "id": "Project UUID or URL key" }, "response": "Project object with workspaces" },
+        { "method": "POST", "path": "/api/companies/{companyId}/projects", "description": "Create project", "params": { "companyId": "Company UUID" }, "body": { "name": "string (required)", "description": "string?", "workspace": { "cwd": "string?", "repoUrl": "string?" } }, "response": "Created Project" },
+        { "method": "PATCH", "path": "/api/projects/{id}", "description": "Update project", "params": { "id": "Project UUID" }, "body": { "name": "string?", "description": "string?", "status": "string?" }, "response": "Updated Project" },
+        { "method": "POST", "path": "/api/projects/{id}/workspaces", "description": "Create workspace in project", "params": { "id": "Project UUID" }, "body": { "name": "string?", "cwd": "string?", "repoUrl": "string?" }, "response": "Created Workspace" }
+      ]
+    },
+    "goals": {
+      "description": "Goal tracking",
+      "endpoints": [
+        { "method": "GET", "path": "/api/companies/{companyId}/goals", "description": "List goals", "params": { "companyId": "Company UUID" }, "response": "Array of Goal objects" },
+        { "method": "GET", "path": "/api/goals/{id}", "description": "Get goal by ID", "params": { "id": "Goal UUID" }, "response": "Goal object" },
+        { "method": "POST", "path": "/api/companies/{companyId}/goals", "description": "Create goal", "params": { "companyId": "Company UUID" }, "body": { "title": "string (required)", "description": "string?" }, "response": "Created Goal" },
+        { "method": "PATCH", "path": "/api/goals/{id}", "description": "Update goal", "params": { "id": "Goal UUID" }, "body": { "title": "string?", "description": "string?", "status": "string?" }, "response": "Updated Goal" }
+      ]
+    },
+    "approvals": {
+      "description": "Approval workflow — create, review, approve/reject",
+      "endpoints": [
+        { "method": "GET", "path": "/api/companies/{companyId}/approvals", "description": "List approvals", "params": { "companyId": "Company UUID", "query": { "status": "filter by status (pending,approved,rejected,revision_requested)" } }, "response": "Array of Approval objects" },
+        { "method": "GET", "path": "/api/approvals/{id}", "description": "Get approval by ID", "params": { "id": "Approval UUID" }, "response": "Approval object" },
+        { "method": "POST", "path": "/api/companies/{companyId}/approvals", "description": "Create approval request", "params": { "companyId": "Company UUID" }, "body": { "title": "string (required)", "description": "string?", "issueIds": "string[]?" }, "response": "Created Approval" },
+        { "method": "GET", "path": "/api/approvals/{id}/issues", "description": "List issues linked to approval", "params": { "id": "Approval UUID" }, "response": "Array of Issue objects" },
+        { "method": "POST", "path": "/api/approvals/{id}/approve", "description": "Approve request", "params": { "id": "Approval UUID" }, "response": "Updated Approval" },
+        { "method": "POST", "path": "/api/approvals/{id}/reject", "description": "Reject request", "params": { "id": "Approval UUID" }, "body": { "reason": "string?" }, "response": "Updated Approval" }
+      ]
+    },
+    "costs": {
+      "description": "Cost tracking and budgets",
+      "endpoints": [
+        { "method": "POST", "path": "/api/companies/{companyId}/cost-events", "description": "Report cost event", "params": { "companyId": "Company UUID" }, "body": { "amountCents": "number", "description": "string?" }, "response": "Created CostEvent" },
+        { "method": "GET", "path": "/api/companies/{companyId}/costs/summary", "description": "Get cost summary", "params": { "companyId": "Company UUID" }, "response": "Cost summary object" },
+        { "method": "GET", "path": "/api/companies/{companyId}/costs/by-agent", "description": "Costs broken down by agent", "params": { "companyId": "Company UUID" }, "response": "Array of agent cost breakdowns" },
+        { "method": "GET", "path": "/api/companies/{companyId}/costs/by-project", "description": "Costs broken down by project", "params": { "companyId": "Company UUID" }, "response": "Array of project cost breakdowns" }
+      ]
+    },
+    "dashboard": {
+      "description": "Company dashboard and sidebar badges",
+      "endpoints": [
+        { "method": "GET", "path": "/api/companies/{companyId}/dashboard", "description": "Get dashboard summary", "params": { "companyId": "Company UUID" }, "response": "Dashboard summary object" },
+        { "method": "GET", "path": "/api/companies/{companyId}/sidebar-badges", "description": "Get sidebar badge counts", "params": { "companyId": "Company UUID" }, "response": "Badge counts object" }
+      ]
+    },
+    "activity": {
+      "description": "Activity log and run history",
+      "endpoints": [
+        { "method": "GET", "path": "/api/companies/{companyId}/activity", "description": "List company activity", "params": { "companyId": "Company UUID" }, "response": "Array of Activity objects" },
+        { "method": "GET", "path": "/api/issues/{id}/activity", "description": "Activity for a specific issue", "params": { "id": "Issue UUID" }, "response": "Array of Activity objects" },
+        { "method": "GET", "path": "/api/issues/{id}/runs", "description": "Runs associated with an issue", "params": { "id": "Issue UUID" }, "response": "Array of HeartbeatRun objects" },
+        { "method": "GET", "path": "/api/heartbeat-runs/{runId}/issues", "description": "Issues worked on during a run", "params": { "runId": "Run UUID" }, "response": "Array of Issue objects" }
+      ]
+    },
+    "secrets": {
+      "description": "Secret management for agents",
+      "endpoints": [
+        { "method": "GET", "path": "/api/companies/{companyId}/secrets", "description": "List secrets (values redacted)", "params": { "companyId": "Company UUID" }, "response": "Array of Secret objects" },
+        { "method": "POST", "path": "/api/companies/{companyId}/secrets", "description": "Create secret", "params": { "companyId": "Company UUID" }, "body": { "name": "string", "value": "string", "provider": "string?" }, "response": "Created Secret" },
+        { "method": "POST", "path": "/api/secrets/{id}/rotate", "description": "Rotate secret value", "params": { "id": "Secret UUID" }, "body": { "value": "string" }, "response": "Updated Secret" }
+      ]
+    },
+    "access": {
+      "description": "Invites, join requests, permissions, and company membership",
+      "endpoints": [
+        { "method": "POST", "path": "/api/companies/{companyId}/invites", "description": "Create invite link", "params": { "companyId": "Company UUID" }, "response": "Invite object with token" },
+        { "method": "POST", "path": "/api/companies/{companyId}/openclaw/invite-prompt", "description": "Generate OpenClaw invite prompt", "params": { "companyId": "Company UUID" }, "body": { "agentMessage": "string?" }, "response": "Object with onboardingTextUrl" },
+        { "method": "GET", "path": "/api/invites/{token}", "description": "Get invite details (public)", "params": { "token": "Invite token" }, "response": "Invite details" },
+        { "method": "POST", "path": "/api/invites/{token}/accept", "description": "Accept invite", "params": { "token": "Invite token" }, "response": "Join request or bootstrap result" },
+        { "method": "GET", "path": "/api/companies/{companyId}/members", "description": "List company members", "params": { "companyId": "Company UUID" }, "response": "Array of Member objects" }
+      ]
+    }
+  },
+  "status_values": ["backlog", "todo", "in_progress", "in_review", "done", "blocked", "cancelled"],
+  "priority_values": ["critical", "high", "medium", "low"]
+}
