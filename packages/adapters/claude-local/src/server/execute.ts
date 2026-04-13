@@ -292,6 +292,18 @@ async function buildClaudeRuntimeConfig(input: ClaudeExecutionInput): Promise<Cl
   if (typeof context.pmAgentName === "string" && context.pmAgentName.length > 0) {
     env.PAPERCLIP_PM_AGENT_NAME = context.pmAgentName;
   }
+  if (typeof context.inProgressDetails === "string" && context.inProgressDetails.length > 0) {
+    env.PAPERCLIP_IN_PROGRESS_DETAILS = context.inProgressDetails;
+  }
+  if (typeof context.projectDashboard === "string" && context.projectDashboard.length > 0) {
+    env.PAPERCLIP_PROJECT_DASHBOARD = context.projectDashboard;
+  }
+  if (typeof context.backlogSummary === "string" && context.backlogSummary.length > 0) {
+    env.PAPERCLIP_BACKLOG_SUMMARY = context.backlogSummary;
+  }
+  if (typeof context.projectSpecsDir === "string" && context.projectSpecsDir.length > 0) {
+    env.PAPERCLIP_PROJECT_SPECS_DIR = context.projectSpecsDir;
+  }
 
   for (const [key, value] of Object.entries(envConfig)) {
     if (typeof value === "string") env[key] = value;

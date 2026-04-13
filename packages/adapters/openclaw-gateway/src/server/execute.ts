@@ -354,6 +354,18 @@ function buildPaperclipEnvForWake(ctx: AdapterExecutionContext, wakePayload: Wak
   if (typeof ctx.context.pmAgentName === "string" && ctx.context.pmAgentName.length > 0) {
     paperclipEnv.PAPERCLIP_PM_AGENT_NAME = ctx.context.pmAgentName;
   }
+  if (typeof ctx.context.inProgressDetails === "string" && ctx.context.inProgressDetails.length > 0) {
+    paperclipEnv.PAPERCLIP_IN_PROGRESS_DETAILS = ctx.context.inProgressDetails;
+  }
+  if (typeof ctx.context.projectDashboard === "string" && ctx.context.projectDashboard.length > 0) {
+    paperclipEnv.PAPERCLIP_PROJECT_DASHBOARD = ctx.context.projectDashboard;
+  }
+  if (typeof ctx.context.backlogSummary === "string" && ctx.context.backlogSummary.length > 0) {
+    paperclipEnv.PAPERCLIP_BACKLOG_SUMMARY = ctx.context.backlogSummary;
+  }
+  if (typeof ctx.context.projectSpecsDir === "string" && ctx.context.projectSpecsDir.length > 0) {
+    paperclipEnv.PAPERCLIP_PROJECT_SPECS_DIR = ctx.context.projectSpecsDir;
+  }
 
   return paperclipEnv;
 }

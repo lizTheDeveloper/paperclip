@@ -1490,6 +1490,168 @@ export function heartbeatService(db: Db) {
       }
     }
 
+    // Tier 3: PM/CEO expanded context — in-progress details, project dashboard, backlog summary
+    if (policy.roleProfile === "pm" || policy.roleProfile === "ceo") {
+      try {
+        const DETAIL_SECRET_PATTERN = /(?:api[_-]?key|password|secret|token|auth)[^\s]*\s*[:=]\s*\S+/gi;
+        const sanitizeDetail = (s: string) => s.replace(DETAIL_SECRET_PATTERN, "[redacted]");
+
+        // 1. In-progress issue details with descriptions and recent comments
+        const inProgressIds = agentAssignments
+          .filter((a) => a.status === "in_progress")
+          .slice(0, 10)
+          .map((a) => a.id);
+
+        if (inProgressIds.length > 0) {
+          const inProgressDescriptions = await db
+            .select({ id: issues.id, description: issues.description })
+            .from(issues)
+            .where(inArray(issues.id, inProgressIds));
+
+          const descriptionMap = new Map(inProgressDescriptions.map((r) => [r.id, r.description]));
+
+          const inProgressDetails = await Promise.all(
+            agentAssignments
+              .filter((a) => a.status === "in_progress")
+              .slice(0, 10)
+              .map(async (a) => {
+                const rawDesc = descriptionMap.get(a.id) ?? null;
+                const description = rawDesc ? sanitizeDetail(rawDesc.slice(0, 500)) + (rawDesc.length > 500 ? "..." : "") : null;
+
+                const comments = await db
+                  .select({
+                    body: issueComments.body,
+                    authorUserId: issueComments.authorUserId,
+                    authorAgentId: issueComments.authorAgentId,
+                    createdAt: issueComments.createdAt,
+                  })
+                  .from(issueComments)
+                  .where(eq(issueComments.issueId, a.id))
+                  .orderBy(desc(issueComments.createdAt))
+                  .limit(3);
+
+                const recentComments = comments.map((c) => ({
+                  author: c.authorUserId ? "board" : c.authorAgentId ? `agent:${c.authorAgentId}` : "unknown",
+                  excerpt: sanitizeDetail(c.body.slice(0, 200)) + (c.body.length > 200 ? "..." : ""),
+                  createdAt: c.createdAt,
+                }));
+
+                return { identifier: a.identifier, title: a.title, description, recentComments };
+              })
+          );
+
+          context.inProgressDetails = JSON.stringify(inProgressDetails);
+        }
+
+        // 2. Project dashboard summary
+        const uniqueProjectIds = [...new Set(agentAssignments.map((a) => a.projectId).filter(Boolean) as string[])].slice(0, 5);
+
+        if (uniqueProjectIds.length > 0) {
+          const projectRows = await db
+            .select({ id: projects.id, name: projects.name })
+            .from(projects)
+            .where(inArray(projects.id, uniqueProjectIds));
+
+          const projectNameMap = new Map(projectRows.map((p) => [p.id, p.name]));
+
+          const dashboardProjects = await Promise.all(
+            uniqueProjectIds.map(async (projectId) => {
+              const statusRows = await db
+                .select({ status: issues.status, count: sql<number>`count(*)` })
+                .from(issues)
+                .where(eq(issues.projectId, projectId))
+                .groupBy(issues.status);
+
+              const statusCounts: Record<string, number> = {};
+              for (const row of statusRows) {
+                statusCounts[row.status ?? "unknown"] = Number(row.count);
+              }
+
+              const staleRows = await db
+                .select({ count: sql<number>`count(*)` })
+                .from(issues)
+                .where(
+                  and(
+                    eq(issues.projectId, projectId),
+                    sql`${issues.status} IN ('todo', 'in_progress')`,
+                    sql`${issues.updatedAt} < NOW() - INTERVAL '7 days'`
+                  )
+                );
+
+              return {
+                projectId,
+                name: projectNameMap.get(projectId) ?? null,
+                statusCounts,
+                staleCount: Number(staleRows[0]?.count ?? 0),
+              };
+            })
+          );
+
+          context.projectDashboard = JSON.stringify({ projects: dashboardProjects });
+        }
+
+        // 3. Backlog summary
+        const backlogProjectIds = [...new Set(agentAssignments.map((a) => a.projectId).filter(Boolean) as string[])].slice(0, 5);
+
+        if (backlogProjectIds.length > 0) {
+          const unassignedRows = await db
+            .select({ id: issues.id })
+            .from(issues)
+            .where(
+              and(
+                inArray(issues.projectId, backlogProjectIds),
+                isNull(issues.assigneeAgentId),
+                isNull(issues.assigneeUserId),
+                sql`${issues.status} IN ('todo', 'backlog')`
+              )
+            );
+
+          const blockedIssueRows = await db
+            .select({
+              id: issues.id,
+              identifier: issues.identifier,
+              title: issues.title,
+            })
+            .from(issues)
+            .where(
+              and(
+                inArray(issues.projectId, backlogProjectIds),
+                sql`${issues.status} = 'blocked'`
+              )
+            )
+            .limit(10);
+
+          const blockedIssues = await Promise.all(
+            blockedIssueRows.map(async (issue) => {
+              const lastComment = await db
+                .select({ body: issueComments.body })
+                .from(issueComments)
+                .where(eq(issueComments.issueId, issue.id))
+                .orderBy(desc(issueComments.createdAt))
+                .limit(1)
+                .then((rows) => rows[0] ?? null);
+
+              const lastBlockerExcerpt = lastComment
+                ? sanitizeDetail(lastComment.body.slice(0, 150)) + (lastComment.body.length > 150 ? "..." : "")
+                : null;
+
+              return { identifier: issue.identifier, title: issue.title, lastBlockerExcerpt };
+            })
+          );
+
+          context.backlogSummary = JSON.stringify({
+            unassignedCount: unassignedRows.length,
+            blockedIssues,
+          });
+        }
+      } catch (err) {
+        logger.warn({ err, agentId: agent.id }, "failed to build PM expanded context; continuing without it");
+      }
+
+      // Inject specs directory path for PM agents
+      context.projectSpecsDir = "docs/specs/";
+    }
+
     // Tier 3: Dashboard data removed from context injection — available via API.
     // CEO/PM agents can call reporting endpoints for full dashboard data.
 
