@@ -225,6 +225,13 @@
       "when": 1775686700000,
       "tag": "0031_board_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1775686800000,
+      "tag": "0032_add_spec_path",
+      "breakpoints": true
     }
   ]
 }
