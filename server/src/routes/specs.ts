@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import matter from "gray-matter";
 import type { Db } from "@paperclipai/db";
-import { eq, projectWorkspaces, projects } from "@paperclipai/db";
+import { and, eq, projectWorkspaces, projects } from "@paperclipai/db";
 import { assertCompanyAccess } from "./authz.js";
 import { notFound, badRequest } from "../errors.js";
 
@@ -143,7 +143,7 @@ export function specsRoutes(db: Db) {
     const [workspace] = await db
       .select({ id: projectWorkspaces.id, cwd: projectWorkspaces.cwd })
       .from(projectWorkspaces)
-      .where(eq(projectWorkspaces.id, workspaceId));
+      .where(and(eq(projectWorkspaces.id, workspaceId), eq(projectWorkspaces.companyId, companyId)));
 
     if (!workspace || !workspace.cwd) {
       throw notFound("Workspace not found");
