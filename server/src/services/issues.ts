@@ -1020,6 +1020,47 @@ export function issueService(db: Db) {
         return { ...current, adoptedFromRunId: null as string | null };
       }
 
+      // Both checkoutRunId and executionRunId are null — the issue is in_progress and
+      // assigned to this agent but has no run lock at all (e.g. checkout was cleared by
+      // a prior release or timeout). Claim the lock for the current run.
+      if (
+        actorRunId &&
+        current.status === "in_progress" &&
+        current.assigneeAgentId === actorAgentId &&
+        current.checkoutRunId == null &&
+        current.executionRunId == null
+      ) {
+        const now = new Date();
+        const adopted = await db
+          .update(issues)
+          .set({
+            checkoutRunId: actorRunId,
+            executionRunId: actorRunId,
+            executionLockedAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(issues.id, id),
+              eq(issues.status, "in_progress"),
+              eq(issues.assigneeAgentId, actorAgentId),
+              isNull(issues.checkoutRunId),
+              isNull(issues.executionRunId),
+            ),
+          )
+          .returning({
+            id: issues.id,
+            status: issues.status,
+            assigneeAgentId: issues.assigneeAgentId,
+            checkoutRunId: issues.checkoutRunId,
+            executionRunId: issues.executionRunId,
+          })
+          .then((rows) => rows[0] ?? null);
+        if (adopted) {
+          return { ...adopted, adoptedFromRunId: null as string | null };
+        }
+      }
+
       // Issue's executionRunId already points at this run, but checkoutRunId is null —
       // happens when releaseIssueExecutionAndPromote clears checkoutRunId but sets
       // executionRunId to the promoted run. Heal silently by restoring checkoutRunId.
