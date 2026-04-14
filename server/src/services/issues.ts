@@ -375,14 +375,34 @@ export function issueService(db: Db) {
     );
   }
 
+  /** How long a non-terminal run can go without updating before we consider it dead. */
+  const STALE_RUN_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
   async function isTerminalOrMissingHeartbeatRun(runId: string) {
     const run = await db
-      .select({ status: heartbeatRuns.status })
+      .select({ status: heartbeatRuns.status, updatedAt: heartbeatRuns.updatedAt })
       .from(heartbeatRuns)
       .where(eq(heartbeatRuns.id, runId))
       .then((rows) => rows[0] ?? null);
     if (!run) return true;
-    return TERMINAL_HEARTBEAT_RUN_STATUSES.has(run.status);
+    if (TERMINAL_HEARTBEAT_RUN_STATUSES.has(run.status)) return true;
+    // A run that claims to be running/queued but hasn't heartbeated in
+    // STALE_RUN_THRESHOLD_MS is likely dead (OOM, container restart, etc.).
+    // Treat it as terminal so the assigned agent can reclaim the issue.
+    if (run.updatedAt) {
+      const age = Date.now() - new Date(run.updatedAt).getTime();
+      if (age > STALE_RUN_THRESHOLD_MS) return true;
+    }
+    return false;
+  }
+
+  async function isSameAgentRun(runId: string, agentId: string) {
+    const run = await db
+      .select({ agentId: heartbeatRuns.agentId })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId))
+      .then((rows) => rows[0] ?? null);
+    return run != null && run.agentId === agentId;
   }
 
   async function adoptStaleCheckoutRun(input: {
@@ -391,7 +411,9 @@ export function issueService(db: Db) {
     actorRunId: string;
     expectedCheckoutRunId: string;
   }) {
-    const stale = await isTerminalOrMissingHeartbeatRun(input.expectedCheckoutRunId);
+    const stale =
+      (await isTerminalOrMissingHeartbeatRun(input.expectedCheckoutRunId)) ||
+      (await isSameAgentRun(input.expectedCheckoutRunId, input.actorAgentId));
     if (!stale) return null;
 
     const now = new Date();
@@ -895,7 +917,7 @@ export function issueService(db: Db) {
 
       // Adopt when the issue is already in_progress, assigned to this agent, has no
       // live checkoutRunId, but still carries a stale executionRunId from a prior run
-      // that terminated without clearing. Reclaim the lock for the current run.
+      // that terminated without clearing, or a sibling run of the same agent.
       if (
         checkoutRunId &&
         current.assigneeAgentId === agentId &&
@@ -904,7 +926,9 @@ export function issueService(db: Db) {
         current.executionRunId &&
         current.executionRunId !== checkoutRunId
       ) {
-        const stale = await isTerminalOrMissingHeartbeatRun(current.executionRunId);
+        const stale =
+          (await isTerminalOrMissingHeartbeatRun(current.executionRunId)) ||
+          (await isSameAgentRun(current.executionRunId, agentId));
         if (stale) {
           const now = new Date();
           const adopted = await db
@@ -996,6 +1020,46 @@ export function issueService(db: Db) {
         return { ...current, adoptedFromRunId: null as string | null };
       }
 
+      // Issue's executionRunId already points at this run, but checkoutRunId is null —
+      // happens when releaseIssueExecutionAndPromote clears checkoutRunId but sets
+      // executionRunId to the promoted run. Heal silently by restoring checkoutRunId.
+      if (
+        actorRunId &&
+        current.status === "in_progress" &&
+        current.assigneeAgentId === actorAgentId &&
+        current.checkoutRunId == null &&
+        current.executionRunId === actorRunId
+      ) {
+        const now = new Date();
+        const adopted = await db
+          .update(issues)
+          .set({
+            checkoutRunId: actorRunId,
+            executionLockedAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(issues.id, id),
+              eq(issues.status, "in_progress"),
+              eq(issues.assigneeAgentId, actorAgentId),
+              isNull(issues.checkoutRunId),
+              eq(issues.executionRunId, actorRunId),
+            ),
+          )
+          .returning({
+            id: issues.id,
+            status: issues.status,
+            assigneeAgentId: issues.assigneeAgentId,
+            checkoutRunId: issues.checkoutRunId,
+            executionRunId: issues.executionRunId,
+          })
+          .then((rows) => rows[0] ?? null);
+        if (adopted) {
+          return { ...adopted, adoptedFromRunId: null as string | null };
+        }
+      }
+
       if (
         actorRunId &&
         current.status === "in_progress" &&
@@ -1020,7 +1084,10 @@ export function issueService(db: Db) {
 
       // Adopt when checkoutRunId is null but a stale executionRunId still guards the
       // issue. Happens when a prior run crashed or was marked process_lost before it
-      // could release — the assignee agent on a fresh run should reclaim.
+      // could release — the assignee agent on a fresh run should reclaim. Same-agent
+      // reclaim is also safe when the lingering executionRunId belongs to a sibling
+      // run of the same agent (heartbeat scheduler promoted a queued/running run
+      // without clearing the prior lock).
       if (
         actorRunId &&
         current.status === "in_progress" &&
@@ -1029,7 +1096,9 @@ export function issueService(db: Db) {
         current.executionRunId &&
         current.executionRunId !== actorRunId
       ) {
-        const stale = await isTerminalOrMissingHeartbeatRun(current.executionRunId);
+        const stale =
+          (await isTerminalOrMissingHeartbeatRun(current.executionRunId)) ||
+          (await isSameAgentRun(current.executionRunId, actorAgentId));
         if (stale) {
           const now = new Date();
           const adopted = await db
@@ -1094,9 +1163,14 @@ export function issueService(db: Db) {
         existing.checkoutRunId &&
         !sameRunLock(existing.checkoutRunId, actorRunId ?? null)
       ) {
-        // Allow release if the old checkout run is terminal (timed_out, failed, etc.)
+        // Allow release if the old checkout run is terminal, stale, or from the same agent.
+        // Same-agent reclaim is safe: the agent's new run is trying to release its own
+        // issue that was locked by a prior (now-dead) run of the same agent.
         const stale = await isTerminalOrMissingHeartbeatRun(existing.checkoutRunId);
-        if (!stale) {
+        const sameAgent = actorRunId
+          ? await isSameAgentRun(existing.checkoutRunId, actorAgentId)
+          : false;
+        if (!stale && !sameAgent) {
           throw conflict("Only checkout run can release issue", {
             issueId: existing.id,
             assigneeAgentId: existing.assigneeAgentId,
