@@ -825,6 +825,46 @@ export function issueService(db: Db) {
 
       if (!current) throw notFound("Issue not found");
 
+      // If the issue is in a non-in_progress expected status but has a stale execution lock,
+      // clear the lock and retry checkout. This handles cases where the execution lock wasn't
+      // cleaned up when the issue was moved back to todo/backlog/blocked.
+      if (
+        current.status !== "in_progress" &&
+        expectedStatuses.includes(current.status) &&
+        current.executionRunId &&
+        current.executionRunId !== checkoutRunId &&
+        (current.assigneeAgentId == null || current.assigneeAgentId === agentId)
+      ) {
+        const stale = await isTerminalOrMissingHeartbeatRun(current.executionRunId);
+        if (stale) {
+          const retried = await db
+            .update(issues)
+            .set({
+              assigneeAgentId: agentId,
+              assigneeUserId: null,
+              checkoutRunId,
+              executionRunId: checkoutRunId,
+              executionLockedAt: now,
+              status: "in_progress",
+              startedAt: now,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(issues.id, id),
+                inArray(issues.status, expectedStatuses),
+                eq(issues.executionRunId, current.executionRunId),
+              ),
+            )
+            .returning()
+            .then((rows) => rows[0] ?? null);
+          if (retried) {
+            const [enriched] = await withIssueLabels(db, [retried]);
+            return enriched;
+          }
+        }
+      }
+
       if (
         current.assigneeAgentId === agentId &&
         current.status === "in_progress" &&
@@ -851,6 +891,46 @@ export function issueService(db: Db) {
           .returning()
           .then((rows) => rows[0] ?? null);
         if (adopted) return adopted;
+      }
+
+      // Adopt when the issue is already in_progress, assigned to this agent, has no
+      // live checkoutRunId, but still carries a stale executionRunId from a prior run
+      // that terminated without clearing. Reclaim the lock for the current run.
+      if (
+        checkoutRunId &&
+        current.assigneeAgentId === agentId &&
+        current.status === "in_progress" &&
+        current.checkoutRunId == null &&
+        current.executionRunId &&
+        current.executionRunId !== checkoutRunId
+      ) {
+        const stale = await isTerminalOrMissingHeartbeatRun(current.executionRunId);
+        if (stale) {
+          const now = new Date();
+          const adopted = await db
+            .update(issues)
+            .set({
+              checkoutRunId,
+              executionRunId: checkoutRunId,
+              executionLockedAt: now,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(issues.id, id),
+                eq(issues.status, "in_progress"),
+                eq(issues.assigneeAgentId, agentId),
+                isNull(issues.checkoutRunId),
+                eq(issues.executionRunId, current.executionRunId),
+              ),
+            )
+            .returning()
+            .then((rows) => rows[0] ?? null);
+          if (adopted) {
+            const [enriched] = await withIssueLabels(db, [adopted]);
+            return enriched;
+          }
+        }
       }
 
       if (
@@ -900,6 +980,7 @@ export function issueService(db: Db) {
           status: issues.status,
           assigneeAgentId: issues.assigneeAgentId,
           checkoutRunId: issues.checkoutRunId,
+          executionRunId: issues.executionRunId,
         })
         .from(issues)
         .where(eq(issues.id, id))
@@ -934,6 +1015,54 @@ export function issueService(db: Db) {
             ...adopted,
             adoptedFromRunId: current.checkoutRunId,
           };
+        }
+      }
+
+      // Adopt when checkoutRunId is null but a stale executionRunId still guards the
+      // issue. Happens when a prior run crashed or was marked process_lost before it
+      // could release — the assignee agent on a fresh run should reclaim.
+      if (
+        actorRunId &&
+        current.status === "in_progress" &&
+        current.assigneeAgentId === actorAgentId &&
+        current.checkoutRunId == null &&
+        current.executionRunId &&
+        current.executionRunId !== actorRunId
+      ) {
+        const stale = await isTerminalOrMissingHeartbeatRun(current.executionRunId);
+        if (stale) {
+          const now = new Date();
+          const adopted = await db
+            .update(issues)
+            .set({
+              checkoutRunId: actorRunId,
+              executionRunId: actorRunId,
+              executionLockedAt: now,
+              updatedAt: now,
+            })
+            .where(
+              and(
+                eq(issues.id, id),
+                eq(issues.status, "in_progress"),
+                eq(issues.assigneeAgentId, actorAgentId),
+                isNull(issues.checkoutRunId),
+                eq(issues.executionRunId, current.executionRunId),
+              ),
+            )
+            .returning({
+              id: issues.id,
+              status: issues.status,
+              assigneeAgentId: issues.assigneeAgentId,
+              checkoutRunId: issues.checkoutRunId,
+              executionRunId: issues.executionRunId,
+            })
+            .then((rows) => rows[0] ?? null);
+          if (adopted) {
+            return {
+              ...adopted,
+              adoptedFromRunId: current.executionRunId,
+            };
+          }
         }
       }
 
