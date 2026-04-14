@@ -368,14 +368,32 @@ export function issueService(db: Db) {
     );
   }
 
+  const STALE_RUN_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+
   async function isTerminalOrMissingHeartbeatRun(runId: string) {
     const run = await db
-      .select({ status: heartbeatRuns.status })
+      .select({ status: heartbeatRuns.status, updatedAt: heartbeatRuns.updatedAt })
       .from(heartbeatRuns)
       .where(eq(heartbeatRuns.id, runId))
       .then((rows) => rows[0] ?? null);
     if (!run) return true;
-    return TERMINAL_HEARTBEAT_RUN_STATUSES.has(run.status);
+    if (TERMINAL_HEARTBEAT_RUN_STATUSES.has(run.status)) return true;
+    // A run that claims to be running/queued but hasn't heartbeated in
+    // STALE_RUN_THRESHOLD_MS is likely dead (OOM, container restart, etc.).
+    if (run.updatedAt) {
+      const age = Date.now() - new Date(run.updatedAt).getTime();
+      if (age > STALE_RUN_THRESHOLD_MS) return true;
+    }
+    return false;
+  }
+
+  async function isSameAgentRun(runId: string, agentId: string) {
+    const run = await db
+      .select({ agentId: heartbeatRuns.agentId })
+      .from(heartbeatRuns)
+      .where(eq(heartbeatRuns.id, runId))
+      .then((rows) => rows[0] ?? null);
+    return run != null && run.agentId === agentId;
   }
 
   async function adoptStaleCheckoutRun(input: {
@@ -384,7 +402,9 @@ export function issueService(db: Db) {
     actorRunId: string;
     expectedCheckoutRunId: string;
   }) {
-    const stale = await isTerminalOrMissingHeartbeatRun(input.expectedCheckoutRunId);
+    const stale =
+      (await isTerminalOrMissingHeartbeatRun(input.expectedCheckoutRunId)) ||
+      (await isSameAgentRun(input.expectedCheckoutRunId, input.actorAgentId));
     if (!stale) return null;
 
     const now = new Date();
@@ -908,25 +928,45 @@ export function issueService(db: Db) {
         return { ...current, adoptedFromRunId: null as string | null };
       }
 
+      // Assignee override: if the actor IS the assigned agent and the issue is
+      // in_progress, unconditionally adopt the lock to the current run.
+      // The agent is the source of truth; the run is audit trail only.
+      // This prevents permanent lock-out when a prior run dies (process_lost,
+      // OOM, container restart) and the heartbeat_runs record is in an
+      // ambiguous state.  See MUL-5511 for the full incident history.
       if (
         actorRunId &&
         current.status === "in_progress" &&
         current.assigneeAgentId === actorAgentId &&
-        current.checkoutRunId &&
-        current.checkoutRunId !== actorRunId
+        !sameRunLock(current.checkoutRunId, actorRunId)
       ) {
-        const adopted = await adoptStaleCheckoutRun({
-          issueId: id,
-          actorAgentId,
-          actorRunId,
-          expectedCheckoutRunId: current.checkoutRunId,
-        });
+        const previousCheckoutRunId = current.checkoutRunId;
+        const now = new Date();
+        const reclaimed = await db
+          .update(issues)
+          .set({
+            checkoutRunId: actorRunId,
+            executionRunId: actorRunId,
+            executionLockedAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(issues.id, id),
+              eq(issues.status, "in_progress"),
+              eq(issues.assigneeAgentId, actorAgentId),
+            ),
+          )
+          .returning({
+            id: issues.id,
+            status: issues.status,
+            assigneeAgentId: issues.assigneeAgentId,
+            checkoutRunId: issues.checkoutRunId,
+          })
+          .then((rows) => rows[0] ?? null);
 
-        if (adopted) {
-          return {
-            ...adopted,
-            adoptedFromRunId: current.checkoutRunId,
-          };
+        if (reclaimed) {
+          return { ...reclaimed, adoptedFromRunId: previousCheckoutRunId };
         }
       }
 
@@ -948,22 +988,10 @@ export function issueService(db: Db) {
         .then((rows) => rows[0] ?? null);
 
       if (!existing) return null;
+      // Only the assignee (or non-agent callers) can release. Run ID is not
+      // checked — the agent is the source of truth, not the run.  See MUL-5511.
       if (actorAgentId && existing.assigneeAgentId && existing.assigneeAgentId !== actorAgentId) {
         throw conflict("Only assignee can release issue");
-      }
-      if (
-        actorAgentId &&
-        existing.status === "in_progress" &&
-        existing.assigneeAgentId === actorAgentId &&
-        existing.checkoutRunId &&
-        !sameRunLock(existing.checkoutRunId, actorRunId ?? null)
-      ) {
-        throw conflict("Only checkout run can release issue", {
-          issueId: existing.id,
-          assigneeAgentId: existing.assigneeAgentId,
-          checkoutRunId: existing.checkoutRunId,
-          actorRunId: actorRunId ?? null,
-        });
       }
 
       const updated = await db
@@ -972,6 +1000,9 @@ export function issueService(db: Db) {
           status: "todo",
           assigneeAgentId: null,
           checkoutRunId: null,
+          executionRunId: null,
+          executionAgentNameKey: null,
+          executionLockedAt: null,
           updatedAt: new Date(),
         })
         .where(eq(issues.id, id))
