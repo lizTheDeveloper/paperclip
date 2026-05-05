@@ -66,3 +66,15 @@ export const createIssueAttachmentMetadataSchema = z.object({
 });
 
 export type CreateIssueAttachmentMetadata = z.infer<typeof createIssueAttachmentMetadataSchema>;
+
+export const webhookIngestSchema = z.object({
+  title: z.string().min(1).max(500),
+  description: z.string().optional().nullable(),
+  source: z.string().min(1).max(100),
+  sourceUrl: z.string().url().optional().nullable(),
+  priority: z.enum(ISSUE_PRIORITIES).optional().default("medium"),
+  metadata: z.record(z.unknown()).optional().nullable(),
+  projectId: z.string().uuid().optional().nullable(),
+});
+
+export type WebhookIngest = z.infer<typeof webhookIngestSchema>;

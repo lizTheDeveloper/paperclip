@@ -6,10 +6,11 @@ import {
   companyPortabilityPreviewSchema,
   createCompanySchema,
   updateCompanySchema,
+  webhookIngestSchema,
 } from "@paperclipai/shared";
 import { forbidden } from "../errors.js";
 import { validate } from "../middleware/validate.js";
-import { accessService, companyPortabilityService, companyService, logActivity } from "../services/index.js";
+import { accessService, companyPortabilityService, companyService, issueService, logActivity } from "../services/index.js";
 import { assertBoard, assertCompanyAccess, getActorInfo } from "./authz.js";
 
 export function companyRoutes(db: Db) {
@@ -17,6 +18,7 @@ export function companyRoutes(db: Db) {
   const svc = companyService(db);
   const portability = companyPortabilityService(db);
   const access = accessService(db);
+  const issues = issueService(db);
 
   router.get("/", async (req, res) => {
     assertBoard(req);
@@ -176,6 +178,64 @@ export function companyRoutes(db: Db) {
       return;
     }
     res.json({ ok: true });
+  });
+
+  router.post("/:companyId/webhooks/ingest", validate(webhookIngestSchema), async (req, res) => {
+    const companyId = req.params.companyId as string;
+    assertCompanyAccess(req, companyId);
+
+    const allLabels = await issues.listLabels(companyId);
+    let triageLabel = allLabels.find((label) => label.name.toLowerCase() === "triage");
+
+    if (!triageLabel) {
+      triageLabel = await issues.createLabel(companyId, {
+        name: "triage",
+        color: "#f59e0b",
+      });
+    }
+
+    const { title, description, source, sourceUrl, priority, metadata, projectId } = req.body;
+
+    let fullDescription = `**Source:** ${source}`;
+    if (sourceUrl) {
+      fullDescription += `\n**URL:** ${sourceUrl}`;
+    }
+    if (metadata && Object.keys(metadata).length > 0) {
+      fullDescription += `\n**Metadata:**\n\`\`\`json\n${JSON.stringify(metadata, null, 2)}\n\`\`\``;
+    }
+    if (description) {
+      fullDescription += `\n\n---\n\n${description}`;
+    }
+
+    const issue = await issues.create(companyId, {
+      title,
+      description: fullDescription,
+      status: "todo",
+      priority: priority ?? "medium",
+      projectId: projectId ?? null,
+      labelIds: [triageLabel.id],
+    });
+
+    const actor = getActorInfo(req);
+    await logActivity(db, {
+      companyId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      agentId: actor.agentId,
+      runId: actor.runId,
+      action: "issue.created",
+      entityType: "issue",
+      entityId: issue.id,
+      details: {
+        title: issue.title,
+        identifier: issue.identifier,
+        source,
+        sourceUrl: sourceUrl ?? null,
+        ingestionMethod: "webhook",
+      },
+    });
+
+    res.status(201).json(issue);
   });
 
   return router;
