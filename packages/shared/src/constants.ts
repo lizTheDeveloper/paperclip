@@ -1,6 +1,17 @@
 export const COMPANY_STATUSES = ["active", "paused", "archived"] as const;
 export type CompanyStatus = (typeof COMPANY_STATUSES)[number];
 
+export const FEEDBACK_TARGET_TYPES = ["issue_comment", "issue_document_revision"] as const;
+export type FeedbackTargetType = (typeof FEEDBACK_TARGET_TYPES)[number];
+
+export const FEEDBACK_VOTE_VALUES = ["up", "down"] as const;
+export type FeedbackVoteValue = (typeof FEEDBACK_VOTE_VALUES)[number];
+
+export const FEEDBACK_TRACE_STATUSES = ["local_only", "pending", "sent", "failed"] as const;
+export type FeedbackTraceStatus = (typeof FEEDBACK_TRACE_STATUSES)[number];
+
+export const DEFAULT_FEEDBACK_DATA_SHARING_TERMS_VERSION = "feedback-data-sharing-v1";
+
 export const DEPLOYMENT_MODES = ["local_trusted", "authenticated"] as const;
 export type DeploymentMode = (typeof DEPLOYMENT_MODES)[number];
 

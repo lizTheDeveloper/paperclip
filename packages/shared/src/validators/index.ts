@@ -1,9 +1,19 @@
 export {
   createCompanySchema,
   updateCompanySchema,
+  updateCompanyBrandingSchema,
   type CreateCompany,
   type UpdateCompany,
+  type UpdateCompanyBranding,
 } from "./company.js";
+
+export {
+  feedbackTargetTypeSchema,
+  feedbackTraceStatusSchema,
+  feedbackVoteValueSchema,
+  upsertIssueFeedbackVoteSchema,
+  type UpsertIssueFeedbackVote,
+} from "./feedback.js";
 export {
   portabilityIncludeSchema,
   portabilitySecretRequirementSchema,
