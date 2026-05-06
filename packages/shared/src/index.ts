@@ -163,6 +163,8 @@ export {
   addIssueCommentSchema,
   linkIssueApprovalSchema,
   createIssueAttachmentMetadataSchema,
+  webhookIngestSchema,
+  type WebhookIngest,
   type CreateIssue,
   type CreateIssueLabel,
   type UpdateIssue,
