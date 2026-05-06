@@ -21,6 +21,35 @@ git_remote_exists() {
   git -C "$REPO_ROOT" remote get-url "$1" >/dev/null 2>&1
 }
 
+github_repo_from_remote() {
+  local remote_url
+
+  remote_url="$(git -C "$REPO_ROOT" remote get-url "$1" 2>/dev/null || true)"
+  [ -n "$remote_url" ] || return 1
+
+  remote_url="${remote_url%.git}"
+  remote_url="${remote_url#ssh://}"
+
+  node - "$remote_url" <<'NODE'
+const remoteUrl = process.argv[2];
+
+const patterns = [
+  /^https?:\/\/github\.com\/([^/]+\/[^/]+)$/,
+  /^git@github\.com:([^/]+\/[^/]+)$/,
+  /^[^:]+:([^/]+\/[^/]+)$/
+];
+
+for (const pattern of patterns) {
+  const match = remoteUrl.match(pattern);
+  if (!match) continue;
+  process.stdout.write(match[1]);
+  process.exit(0);
+}
+
+process.exit(1);
+NODE
+}
+
 resolve_release_remote() {
   local remote="${RELEASE_REMOTE:-${PUBLISH_REMOTE:-}}"
 
@@ -165,6 +194,36 @@ npm_version_exists() {
 
   resolved="$(npm view "paperclipai@${version}" version 2>/dev/null || true)"
   [ "$resolved" = "$version" ]
+}
+
+npm_package_version_exists() {
+  local package_name="$1"
+  local version="$2"
+  local resolved
+
+  resolved="$(npm view "${package_name}@${version}" version 2>/dev/null || true)"
+  [ "$resolved" = "$version" ]
+}
+
+wait_for_npm_package_version() {
+  local package_name="$1"
+  local version="$2"
+  local attempts="${3:-12}"
+  local delay_seconds="${4:-5}"
+  local attempt=1
+
+  while [ "$attempt" -le "$attempts" ]; do
+    if npm_package_version_exists "$package_name" "$version"; then
+      return 0
+    fi
+
+    if [ "$attempt" -lt "$attempts" ]; then
+      sleep "$delay_seconds"
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  return 1
 }
 
 require_clean_worktree() {

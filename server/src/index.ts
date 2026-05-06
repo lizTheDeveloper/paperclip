@@ -25,7 +25,7 @@ import { createApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { logger } from "./middleware/logger.js";
 import { setupLiveEventsWebSocketServer } from "./realtime/live-events-ws.js";
-import { heartbeatService } from "./services/index.js";
+import { heartbeatService, reconcilePersistedRuntimeServicesOnStartup } from "./services/index.js";
 import { createStorageServiceFromConfig } from "./storage/index.js";
 import { printStartupBanner } from "./startup-banner.js";
 import { getBoardClaimWarningUrl, initializeBoardClaimChallenge } from "./board-claim.js";
@@ -460,10 +460,12 @@ export async function startServer(): Promise<StartedServer> {
     authReady = true;
   }
   
+  const listenPort = await detectPort(config.port);
   const uiMode = config.uiDevMiddleware ? "vite-dev" : config.serveUi ? "static" : "none";
   const storageService = createStorageServiceFromConfig(config);
   const app = await createApp(db as any, {
     uiMode,
+    serverPort: listenPort,
     storageService,
     deploymentMode: config.deploymentMode,
     deploymentExposure: config.deploymentExposure,
@@ -475,7 +477,6 @@ export async function startServer(): Promise<StartedServer> {
     resolveSession,
   });
   const server = createServer(app as unknown as Parameters<typeof createServer>[0]);
-  const listenPort = await detectPort(config.port);
   
   if (listenPort !== config.port) {
     logger.warn(`Requested port is busy; using next free port (requestedPort=${config.port}, selectedPort=${listenPort})`);
@@ -494,6 +495,19 @@ export async function startServer(): Promise<StartedServer> {
     deploymentMode: config.deploymentMode,
     resolveSessionFromHeaders,
   });
+
+  void reconcilePersistedRuntimeServicesOnStartup(db as any)
+    .then((result) => {
+      if (result.reconciled > 0) {
+        logger.warn(
+          { reconciled: result.reconciled },
+          "reconciled persisted runtime services from a previous server process",
+        );
+      }
+    })
+    .catch((err) => {
+      logger.error({ err }, "startup reconciliation of persisted runtime services failed");
+    });
   
   if (config.heartbeatSchedulerEnabled) {
     const heartbeat = heartbeatService(db as any);
@@ -502,7 +516,7 @@ export async function startServer(): Promise<StartedServer> {
     void heartbeat.reapOrphanedRuns().catch((err) => {
       logger.error({ err }, "startup reap of orphaned heartbeat runs failed");
     });
-  
+
     setInterval(() => {
       void heartbeat
         .tickTimers(new Date())

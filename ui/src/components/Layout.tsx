@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type UIEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, Moon, Sun } from "lucide-react";
-import { Outlet, useLocation, useNavigate, useParams } from "@/lib/router";
+import { BookOpen, Moon, Settings, Sun } from "lucide-react";
+import { Link, Outlet, useLocation, useNavigate, useParams } from "@/lib/router";
 import { CompanyRail } from "./CompanyRail";
 import { Sidebar } from "./Sidebar";
+import { InstanceSidebar } from "./InstanceSidebar";
 import { SidebarNavItem } from "./SidebarNavItem";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { PropertiesPanel } from "./PropertiesPanel";
@@ -24,21 +25,36 @@ import { useCompanyPageMemory } from "../hooks/useCompanyPageMemory";
 import { healthApi } from "../api/health";
 import { queryKeys } from "../lib/queryKeys";
 import { cn } from "../lib/utils";
+import { NotFoundPage } from "../pages/NotFound";
 import { Button } from "@/components/ui/button";
 
 export function Layout() {
   const { sidebarOpen, setSidebarOpen, toggleSidebar, isMobile } = useSidebar();
   const { openNewIssue, openOnboarding } = useDialog();
   const { togglePanelVisible } = usePanel();
-  const { companies, loading: companiesLoading, selectedCompanyId, setSelectedCompanyId } = useCompany();
+  const {
+    companies,
+    loading: companiesLoading,
+    selectedCompany,
+    selectedCompanyId,
+    setSelectedCompanyId,
+  } = useCompany();
   const { theme, toggleTheme } = useTheme();
   const { companyPrefix } = useParams<{ companyPrefix: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const isInstanceSettingsRoute = location.pathname.startsWith("/instance/");
   const onboardingTriggered = useRef(false);
   const lastMainScrollTop = useRef(0);
   const [mobileNavVisible, setMobileNavVisible] = useState(true);
   const nextTheme = theme === "dark" ? "light" : "dark";
+  const matchedCompany = useMemo(() => {
+    if (!companyPrefix) return null;
+    const requestedPrefix = companyPrefix.toUpperCase();
+    return companies.find((company) => company.issuePrefix.toUpperCase() === requestedPrefix) ?? null;
+  }, [companies, companyPrefix]);
+  const hasUnknownCompanyPrefix =
+    Boolean(companyPrefix) && !companiesLoading && companies.length > 0 && !matchedCompany;
   const { data: health } = useQuery({
     queryKey: queryKeys.health,
     queryFn: () => healthApi.get(),
@@ -57,30 +73,30 @@ export function Layout() {
   useEffect(() => {
     if (!companyPrefix || companiesLoading || companies.length === 0) return;
 
-    const requestedPrefix = companyPrefix.toUpperCase();
-    const matched = companies.find((company) => company.issuePrefix.toUpperCase() === requestedPrefix);
-
-    if (!matched) {
-      const fallback =
-        (selectedCompanyId ? companies.find((company) => company.id === selectedCompanyId) : null)
-        ?? companies[0]!;
-      navigate(`/${fallback.issuePrefix}/dashboard`, { replace: true });
+    if (!matchedCompany) {
+      const fallback = (selectedCompanyId ? companies.find((company) => company.id === selectedCompanyId) : null)
+        ?? companies[0]
+        ?? null;
+      if (fallback && selectedCompanyId !== fallback.id) {
+        setSelectedCompanyId(fallback.id, { source: "route_sync" });
+      }
       return;
     }
 
-    if (companyPrefix !== matched.issuePrefix) {
+    if (companyPrefix !== matchedCompany.issuePrefix) {
       const suffix = location.pathname.replace(/^\/[^/]+/, "");
-      navigate(`/${matched.issuePrefix}${suffix}${location.search}`, { replace: true });
+      navigate(`/${matchedCompany.issuePrefix}${suffix}${location.search}`, { replace: true });
       return;
     }
 
-    if (selectedCompanyId !== matched.id) {
-      setSelectedCompanyId(matched.id, { source: "route_sync" });
+    if (selectedCompanyId !== matchedCompany.id) {
+      setSelectedCompanyId(matchedCompany.id, { source: "route_sync" });
     }
   }, [
     companyPrefix,
     companies,
     companiesLoading,
+    matchedCompany,
     location.pathname,
     location.search,
     navigate,
@@ -90,23 +106,12 @@ export function Layout() {
 
   const togglePanel = togglePanelVisible;
 
-  // Cmd+1..9 to switch companies
-  const switchCompany = useCallback(
-    (index: number) => {
-      if (index < companies.length) {
-        setSelectedCompanyId(companies[index]!.id);
-      }
-    },
-    [companies, setSelectedCompanyId],
-  );
-
   useCompanyPageMemory();
 
   useKeyboardShortcuts({
     onNewIssue: () => openNewIssue(),
     onToggleSidebar: toggleSidebar,
     onTogglePanel: togglePanel,
-    onSwitchCompany: switchCompany,
   });
 
   useEffect(() => {
@@ -163,28 +168,56 @@ export function Layout() {
     };
   }, [isMobile, sidebarOpen, setSidebarOpen]);
 
-  const handleMainScroll = useCallback(
-    (event: UIEvent<HTMLElement>) => {
-      if (!isMobile) return;
+  const updateMobileNavVisibility = useCallback((currentTop: number) => {
+    const delta = currentTop - lastMainScrollTop.current;
 
-      const currentTop = event.currentTarget.scrollTop;
-      const delta = currentTop - lastMainScrollTop.current;
+    if (currentTop <= 24) {
+      setMobileNavVisible(true);
+    } else if (delta > 8) {
+      setMobileNavVisible(false);
+    } else if (delta < -8) {
+      setMobileNavVisible(true);
+    }
 
-      if (currentTop <= 24) {
-        setMobileNavVisible(true);
-      } else if (delta > 8) {
-        setMobileNavVisible(false);
-      } else if (delta < -8) {
-        setMobileNavVisible(true);
-      }
+    lastMainScrollTop.current = currentTop;
+  }, []);
 
-      lastMainScrollTop.current = currentTop;
-    },
-    [isMobile],
-  );
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileNavVisible(true);
+      lastMainScrollTop.current = 0;
+      return;
+    }
+
+    const onScroll = () => {
+      updateMobileNavVisibility(window.scrollY || document.documentElement.scrollTop || 0);
+    };
+
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [isMobile, updateMobileNavVisibility]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = isMobile ? "visible" : "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isMobile]);
 
   return (
-    <div className="flex h-dvh bg-background text-foreground overflow-hidden pt-[env(safe-area-inset-top)]">
+    <div
+      className={cn(
+        "bg-background text-foreground pt-[env(safe-area-inset-top)]",
+        isMobile ? "min-h-dvh" : "flex h-dvh overflow-hidden",
+      )}
+    >
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[200] focus:rounded-md focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -211,7 +244,7 @@ export function Layout() {
         >
           <div className="flex flex-1 min-h-0 overflow-hidden">
             <CompanyRail />
-            <Sidebar />
+            {isInstanceSettingsRoute ? <InstanceSidebar /> : <Sidebar />}
           </div>
           <div className="border-t border-r border-border px-3 py-2 bg-background">
             <div className="flex items-center gap-1">
@@ -221,6 +254,18 @@ export function Layout() {
                 icon={BookOpen}
                 className="flex-1 min-w-0"
               />
+              <Button variant="ghost" size="icon-sm" className="text-muted-foreground shrink-0" asChild>
+                <Link
+                  to="/instance/settings"
+                  aria-label="Instance settings"
+                  title="Instance settings"
+                  onClick={() => {
+                    if (isMobile) setSidebarOpen(false);
+                  }}
+                >
+                  <Settings className="h-4 w-4" />
+                </Link>
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -245,7 +290,7 @@ export function Layout() {
                 sidebarOpen ? "w-60" : "w-0"
               )}
             >
-              <Sidebar />
+              {isInstanceSettingsRoute ? <InstanceSidebar /> : <Sidebar />}
             </div>
           </div>
           <div className="border-t border-r border-border px-3 py-2">
@@ -256,6 +301,18 @@ export function Layout() {
                 icon={BookOpen}
                 className="flex-1 min-w-0"
               />
+              <Button variant="ghost" size="icon-sm" className="text-muted-foreground shrink-0" asChild>
+                <Link
+                  to="/instance/settings"
+                  aria-label="Instance settings"
+                  title="Instance settings"
+                  onClick={() => {
+                    if (isMobile) setSidebarOpen(false);
+                  }}
+                >
+                  <Settings className="h-4 w-4" />
+                </Link>
+              </Button>
               <Button
                 type="button"
                 variant="ghost"
@@ -273,16 +330,31 @@ export function Layout() {
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 h-full">
-        <BreadcrumbBar />
-        <div className="flex flex-1 min-h-0">
+      <div className={cn("flex min-w-0 flex-col", isMobile ? "w-full" : "h-full flex-1")}>
+        <div
+          className={cn(
+            isMobile && "sticky top-0 z-20 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/85",
+          )}
+        >
+          <BreadcrumbBar />
+        </div>
+        <div className={cn(isMobile ? "block" : "flex flex-1 min-h-0")}>
           <main
             id="main-content"
             tabIndex={-1}
-            className={cn("flex-1 overflow-auto p-4 md:p-6", isMobile && "pb-[calc(5rem+env(safe-area-inset-bottom))]")}
-            onScroll={handleMainScroll}
+            className={cn(
+              "flex-1 p-4 md:p-6",
+              isMobile ? "overflow-visible pb-[calc(5rem+env(safe-area-inset-bottom))]" : "overflow-auto",
+            )}
           >
-            <Outlet />
+            {hasUnknownCompanyPrefix ? (
+              <NotFoundPage
+                scope="invalid_company_prefix"
+                requestedPrefix={companyPrefix ?? selectedCompany?.issuePrefix}
+              />
+            ) : (
+              <Outlet />
+            )}
           </main>
           <PropertiesPanel />
         </div>
